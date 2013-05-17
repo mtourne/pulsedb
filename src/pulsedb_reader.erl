@@ -1,13 +1,13 @@
-%%% @doc stockdb_reader
+%%% @doc pulsedb_reader
 %%% Read-only API
 
--module(stockdb_reader).
+-module(pulsedb_reader).
 -author({"Danil Zagoskin", 'z@gosk.in'}).
 
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include("stockdb.hrl").
--include("../include/stockdb.hrl").
+-include("pulsedb.hrl").
+-include("../include/pulsedb.hrl").
 
 % Open DB, read its contents and close,
 % returning self-sufficient state
@@ -49,37 +49,27 @@ open_existing_db(Path, Modes) ->
   {ok, SavedDBOpts, AfterHeaderOffset} = read_header(File),
 
   {version, Version} = lists:keyfind(version, 1, SavedDBOpts),
-  {stock, Stock} = lists:keyfind(stock, 1, SavedDBOpts),
   {date, Date} = lists:keyfind(date, 1, SavedDBOpts),
-  {scale, Scale} = lists:keyfind(scale, 1, SavedDBOpts),
   {depth, Depth} = lists:keyfind(depth, 1, SavedDBOpts),
   {chunk_size, ChunkSize} = lists:keyfind(chunk_size, 1, SavedDBOpts),
-  HaveCandle = proplists:get_value(have_candle, SavedDBOpts, false),
 
-  {CandleOffset, ChunkMapOffset} = case HaveCandle of
-    true -> {AfterHeaderOffset, AfterHeaderOffset + 4*4};
-    false -> {undefined, AfterHeaderOffset}
-  end,
+  ChunkMapOffset = AfterHeaderOffset,
   
   State0 = #dbstate{
     mode = append,
     version = Version,
-    stock = Stock,
     date = Date,
     depth = Depth,
-    scale = Scale,
     chunk_size = ChunkSize,
     file = File,
     path = Path,
-    have_candle = HaveCandle,
-    candle_offset = CandleOffset,
     chunk_map_offset = ChunkMapOffset
   },
 
-  State2 = read_chunk_map(read_candle(State0)),
+  State2 = read_chunk_map(State0),
   case Version of
-    ?STOCKDB_VERSION ->
-      ValidatedState = stockdb_validator:validate(State2),
+    ?PULSEDB_VERSION ->
+      ValidatedState = pulsedb_validator:validate(State2),
       {ok, ValidatedState};
     _Other ->
       case lists:member(migrate, Modes) of
@@ -106,12 +96,12 @@ candle_info(undefined, _) -> [];
 candle_info({O,H,L,C}, Scale) -> [{candle, {O/Scale,H/Scale,L/Scale,C/Scale}}].
 
 
-%% @doc return some file_info about opened stockdb
-file_info(#dbstate{stock = Stock, date = Date, path = Path, scale = Scale, candle = Candle}) ->
-  candle_info(Candle,Scale) ++ [{path, Path},{stock, Stock}, {date, Date}];
+%% @doc return some file_info about opened pulsedb
+file_info(#dbstate{date = Date, path = Path}) ->
+  [{path, Path},{date, Date}];
 
 file_info(FileName) ->
-  file_info(FileName, [path, stock, date, version, scale, depth, candle]).
+  file_info(FileName, [path, date, version, depth]).
 
 %% @doc read file info
 file_info(FileName, Fields) ->
@@ -136,11 +126,6 @@ get_file_info(FileName, Fields) ->
         NZChunks = nonzero_chunks(#dbstate{file=File, chunk_map_offset = ChunkMapOffset, chunk_size = ChunkSize}),
         Presence = {?NUMBER_OF_CHUNKS(ChunkSize), [N || {N, _} <- NZChunks]},
         {presence, Presence};
-      (candle) when CandleOffset == undefined->
-        {candle, undefined};
-      (candle) when is_number(CandleOffset) ->
-        Scale = proplists:get_value(scale, SavedDBOpts),
-        {candle, read_candle(File,CandleOffset,Scale)};
       (Field) ->
         Value = proplists:get_value(Field, [{path, FileName} | SavedDBOpts]),
         {Field, Value}
@@ -194,29 +179,11 @@ parse_header_line(HeaderLine, nonewline) ->
   ValueStr = string:strip(ValueRaw, both),
 
   Key = erlang:list_to_atom(KeyStr),
-  Value = stockdb_format:parse_header_value(Key, ValueStr),
+  Value = pulsedb_format:parse_header_value(Key, ValueStr),
 
   {Key, Value}.
 
 
-%% @doc read candle from file descriptor
-read_candle(#dbstate{have_candle = false} = State) ->
-  State;
-
-read_candle(#dbstate{file = File, have_candle = true, candle_offset = CandleOffset} = State) ->
-  State#dbstate{candle = read_candle(File,CandleOffset)}.
-
-read_candle(File, CandleOffset) ->
-  case file:pread(File, CandleOffset, 4*4) of
-    {ok, <<0:1, _O:31, _H:32, _L:32, _C:32>>} -> undefined;
-    {ok, <<1:1, O:31, H:32, L:32, C:32>>} -> {O,H,L,C}
-  end.
-
-read_candle(File, CandleOffset, Scale) ->
-  case read_candle(File, CandleOffset) of
-    undefined -> undefined;
-    {O,H,L,C} -> {O/Scale,H/Scale,L/Scale,C/Scale}
-  end.
 
 
 %% @doc Read chunk map and validate corresponding timestamps.
@@ -238,8 +205,8 @@ nonzero_chunks(#dbstate{file = File, chunk_size = ChunkSize, chunk_map_offset = 
 %% @doc Read timestamp at specified offset
 read_timestamp_at_offset(Offset, #dbstate{buffer = undefined, file = File, chunk_map_offset = ChunkMapOffset}) ->
   {ok, Header} = file:pread(File, ChunkMapOffset + Offset, 8),
-  stockdb_format:get_timestamp(Header);
+  pulsedb_format:get_timestamp(Header);
 
 read_timestamp_at_offset(Offset, #dbstate{buffer = Buffer}) ->
   <<_:Offset/binary, Bin/binary>> = Buffer,
-  stockdb_format:get_timestamp(Bin).
+  pulsedb_format:get_timestamp(Bin).

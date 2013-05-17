@@ -1,5 +1,5 @@
--module(stockdb_validator).
--include("stockdb.hrl").
+-module(pulsedb_validator).
+-include("pulsedb.hrl").
 -include("log.hrl").
 -include_lib("kernel/include/file.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -62,15 +62,12 @@ utc_to_daystart(UTC) ->
 validate_chunk(<<>>, _, State) ->
   {ok, State};
 
-validate_chunk(Chunk, Offset, #dbstate{last_md = MD, depth = Depth, scale = Scale} = State) ->
+validate_chunk(Chunk, Offset, #dbstate{last_row = Row, depth = Depth} = State) ->
   % ?debugFmt("decode_packet ~B/~B ~B ~B ~p", [Offset, size(Chunk),Depth, Scale, MD]),
-  case stockdb_format:decode_packet(Chunk, Depth, MD, Scale) of
-    {ok, {md, TS, _Bid, _Ask} = NewMD, Size} ->
+  case pulsedb_format:decode_packet(Chunk, Depth, Row) of
+    {ok, {row, TS, _} = NewRow, Size} ->
       <<_:Size/binary, Rest/binary>> = Chunk,
-      validate_chunk(Rest, Offset + Size, State#dbstate{last_md = NewMD, last_timestamp = TS});
-    {ok, {trade, TS, _, _}, Size} ->
-      <<_:Size/binary, Rest/binary>> = Chunk,
-      validate_chunk(Rest, Offset + Size, State#dbstate{last_timestamp = TS});
+      validate_chunk(Rest, Offset + Size, State#dbstate{last_row = NewRow, last_timestamp = TS});
     {error, _Reason} ->
       {error, State, Offset}
   end.

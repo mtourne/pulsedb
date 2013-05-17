@@ -1,9 +1,9 @@
--module(stockdb_appender).
+-module(pulsedb_appender).
 -author('Max Lapshin <max@maxidoors.ru>').
 
--include("../include/stockdb.hrl").
+-include("../include/pulsedb.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include("stockdb.hrl").
+-include("pulsedb.hrl").
 -include("log.hrl").
 
 
@@ -27,19 +27,19 @@ close(#dbstate{file = File} = State) ->
 
 
 write_events(Path, Events, Options) ->
-  {ok, S0} = stockdb_appender:open(Path, Options),
+  {ok, S0} = pulsedb_appender:open(Path, Options),
   S1 = lists:foldl(fun(Event, State) ->
-        {ok, NextState} = stockdb_appender:append(Event, State),
+        {ok, NextState} = pulsedb_appender:append(Event, State),
         NextState
     end, S0, Events),
-  ok = stockdb_appender:close(S1).
+  ok = pulsedb_appender:close(S1).
 
 
 
 
 %% @doc Here we create skeleton for new DB
 %% Structure of file is following:
-%% #!/usr/bin/env stockdb
+%% #!/usr/bin/env pulsedb
 %% header: value
 %% header: value
 %% header: value
@@ -56,7 +56,7 @@ create_new_db(Path, Opts) ->
   {date, Date} = lists:keyfind(date, 1, Opts),
   State = #dbstate{
     mode = append,
-    version = ?STOCKDB_VERSION,
+    version = ?pulsedb_VERSION,
     stock = Stock,
     date = Date,
     sync = not lists:member(nosync, Opts),
@@ -83,7 +83,7 @@ create_new_db(Path, Opts) ->
 
 
 open_existing_db(Path, _Opts) ->
-  stockdb_reader:open_existing_db(Path, [binary,write,read,raw]).
+  pulsedb_reader:open_existing_db(Path, [binary,write,read,raw]).
 
 
 % Validate event and return {Type, Timestamp} if valid
@@ -138,15 +138,15 @@ append_first_event(Event, State) when is_record(Event, trade) ->
 
 write_header(File, #dbstate{chunk_size = CS, date = Date, depth = Depth, scale = Scale, stock = Stock, version = Version,
   have_candle = HaveCandle}) ->
-  StockDBOpts = [{chunk_size,CS},{date,Date},{depth,Depth},{scale,Scale},{stock,Stock},{version,Version},{have_candle,HaveCandle}],
+  pulsedbOpts = [{chunk_size,CS},{date,Date},{depth,Depth},{scale,Scale},{stock,Stock},{version,Version},{have_candle,HaveCandle}],
   {ok, 0} = file:position(File, 0),
-  ok = file:write(File, <<"#!/usr/bin/env stockdb\n">>),
+  ok = file:write(File, <<"#!/usr/bin/env pulsedb\n">>),
   lists:foreach(fun
     ({have_candle,false}) ->
       ok;
     ({Key, Value}) ->
-      ok = file:write(File, [io_lib:print(Key), ": ", stockdb_format:format_header_value(Key, Value), "\n"])
-    end, StockDBOpts),
+      ok = file:write(File, [io_lib:print(Key), ": ", pulsedb_format:format_header_value(Key, Value), "\n"])
+    end, pulsedbOpts),
   ok = file:write(File, "\n"),
   file:position(File, cur).
 
@@ -212,7 +212,7 @@ write_chunk_offset(ChunkNumber, ChunkOffset, #dbstate{file = File, chunk_map_off
 
 append_full_md(#md{timestamp = Timestamp} = MD, #dbstate{depth = Depth, file = File, scale = Scale} = State) ->
   DepthSetMD = setdepth(MD, Depth),
-  Data = stockdb_format:encode_full_md(DepthSetMD, Scale),
+  Data = pulsedb_format:encode_full_md(DepthSetMD, Scale),
   {ok, _EOF} = file:position(File, eof),
   ok = file:write(File, Data),
   {ok, State#dbstate{
@@ -222,7 +222,7 @@ append_full_md(#md{timestamp = Timestamp} = MD, #dbstate{depth = Depth, file = F
 
 append_delta_md(#md{timestamp = Timestamp} = MD, #dbstate{depth = Depth, file = File, last_md = LastMD, scale = Scale} = State) ->
   DepthSetMD = setdepth(MD, Depth),
-  Data = stockdb_format:encode_delta_md(DepthSetMD, LastMD, Scale),
+  Data = pulsedb_format:encode_delta_md(DepthSetMD, LastMD, Scale),
   {ok, _EOF} = file:position(File, eof),
   ok = file:write(File, Data),
   {ok, State#dbstate{
@@ -232,7 +232,7 @@ append_delta_md(#md{timestamp = Timestamp} = MD, #dbstate{depth = Depth, file = 
 
 append_trade(#trade{timestamp = Timestamp, price = Price} = Trade, 
   #dbstate{file = File, scale = Scale, candle = Candle, have_candle = HaveCandle} = State) ->
-  Data = stockdb_format:encode_trade(Trade, Scale),
+  Data = pulsedb_format:encode_trade(Trade, Scale),
   {ok, _EOF} = file:position(File, eof),
   ok = file:write(File, Data),
   Candle1 = case HaveCandle of

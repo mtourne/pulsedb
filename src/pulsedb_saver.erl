@@ -1,6 +1,6 @@
--module(stockdb_saver).
+-module(pulsedb_saver).
 
--include("stockdb.hrl").
+-include("pulsedb.hrl").
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
@@ -45,7 +45,7 @@ identity(Event, _) -> Event.
 
 init([Stock|Options]) ->
   {Date, _} = calendar:universal_time(),
-  {ok,DB} = stockdb:open_append(Stock, Date, Options),
+  {ok,DB} = pulsedb:open_append(Stock, Date, Options),
   Transform = proplists:get_value(transform, Options, {?MODULE, identity, []}),
   {ok, #saver{db = DB, stock = Stock, date = Date, transform = Transform}}.
 
@@ -57,7 +57,7 @@ handle_event(RawEvent, #saver{transform = {M,F,A}, db = DB1} = Saver) ->
     Evt when is_tuple(Evt) -> [Evt]
   end,
   DB2 = lists:foldl(fun(Event, DB) ->
-    {ok, DB_} = stockdb:append(Event, DB),
+    {ok, DB_} = pulsedb:append(Event, DB),
     DB_
   end, DB1, Events),
   {ok, Saver#saver{db = DB2}}.
@@ -72,6 +72,6 @@ handle_call(Call, Saver) ->
 
 
 terminate(_,#saver{db = DB} = _Saver) -> 
-  stockdb:close(DB).
+  pulsedb:close(DB).
 
 code_change(_,Saver,_) -> {ok,Saver}.

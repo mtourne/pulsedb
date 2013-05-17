@@ -1,5 +1,5 @@
-{application, stockdb, [
-  {description, "Stock database format"},
+{application, pulsedb, [
+  {description, "Statistics collect database"},
   {vsn, "0.1"},
   {registered, []},
   {applications, [kernel, stdlib]},

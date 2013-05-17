@@ -1,13 +1,13 @@
 %%% @doc Stock database
 %%% Designed for continious writing of stock data
 %%% with later fast read and fast seek
--module(stockdb).
+-module(pulsedb).
 -author({"Danil Zagoskin", 'z@gosk.in'}).
--include("../include/stockdb.hrl").
+-include("../include/pulsedb.hrl").
 -include("log.hrl").
--include("stockdb.hrl").
+-include("pulsedb.hrl").
 
--type stockdb() :: {stockdb_pid, pid()} | term().
+-type pulsedb() :: {pulsedb_pid, pid()} | term().
 
 -type price() :: float().
 -type volume() :: non_neg_integer().
@@ -24,7 +24,7 @@
 -type trade() :: #trade{}.
 
 
--export_type([stockdb/0, price/0, volume/0, quote/0, timestamp/0, stock/0, date/0]).
+-export_type([pulsedb/0, price/0, volume/0, quote/0, timestamp/0, stock/0, date/0]).
 -export_type([market_data/0, trade/0]).
 
 
@@ -52,46 +52,46 @@
 
 %% @doc List of stocks in local database
 -spec stocks() -> [stock()].
-stocks() -> stockdb_fs:stocks().
+stocks() -> pulsedb_fs:stocks().
 
 %% @doc List of stocks in remote database
 -spec stocks(Storage::term()) -> [stock()].
-stocks(Storage) -> stockdb_fs:stocks(Storage).
+stocks(Storage) -> pulsedb_fs:stocks(Storage).
 
 
 %% @doc List of available dates for stock
 -spec dates(stock()|{any(),stock()}) -> [date()].
-dates(Stock) -> stockdb_fs:dates(Stock).
+dates(Stock) -> pulsedb_fs:dates(Stock).
 
 %% @doc List of available dates in remote database
 -spec dates(Storage::term(), Stock::stock()) -> [date()].
-dates(Storage, Stock) -> stockdb_fs:dates(Storage, Stock).
+dates(Storage, Stock) -> pulsedb_fs:dates(Storage, Stock).
 
 %% @doc List dates when all given stocks have data
 -spec common_dates([stock()]) -> [date()].
-common_dates(Stocks) -> stockdb_fs:common_dates(Stocks).
+common_dates(Stocks) -> pulsedb_fs:common_dates(Stocks).
 
 %% @doc List dates when all given stocks have data, remote version
 -spec common_dates(Storage::term(), [stock()]) -> [date()].
-common_dates(Storage, Stocks) -> stockdb_fs:common_dates(Storage, Stocks).
+common_dates(Storage, Stocks) -> pulsedb_fs:common_dates(Storage, Stocks).
 
 
 %% @doc Open stock for reading
--spec open_read(stock()|{any(),stock()}, date()) -> {ok, stockdb()} | {error, Reason::term()}.  
+-spec open_read(stock()|{any(),stock()}, date()) -> {ok, pulsedb()} | {error, Reason::term()}.  
 open_read(Stock, Date) ->
-  stockdb_reader:open(stockdb_fs:path(Stock, Date)).
+  pulsedb_reader:open(pulsedb_fs:path(Stock, Date)).
 
 %% @doc Open stock for appending
--spec open_append(stock(), date(), [open_option()]) -> {ok, stockdb()} | {error, Reason::term()}.  
+-spec open_append(stock(), date(), [open_option()]) -> {ok, pulsedb()} | {error, Reason::term()}.  
 open_append(Stock, Date, Opts) ->
-  Path = stockdb_fs:path(Stock, Date),
-  {db, RealStock, RealDate} = stockdb_fs:file_info(Path),
-  stockdb_appender:open(Path, [{stock,RealStock},{date,stockdb_fs:parse_date(RealDate)}|Opts]).
+  Path = pulsedb_fs:path(Stock, Date),
+  {db, RealStock, RealDate} = pulsedb_fs:file_info(Path),
+  pulsedb_appender:open(Path, [{stock,RealStock},{date,pulsedb_fs:parse_date(RealDate)}|Opts]).
 
 %% @doc Append row to db
--spec append(stockdb(), trade() | market_data()) -> {ok, stockdb()} | {error, Reason::term()}.
-append(Event, Stockdb) ->
-  stockdb_appender:append(Event, Stockdb).
+-spec append(pulsedb(), trade() | market_data()) -> {ok, pulsedb()} | {error, Reason::term()}.
+append(Event, pulsedb) ->
+  pulsedb_appender:append(Event, pulsedb).
 
 -spec write_events(stock(), date(), [trade() | market_data()]) -> ok | {error, Reason::term()}.
 write_events(Stock, Date, Events) ->
@@ -99,30 +99,30 @@ write_events(Stock, Date, Events) ->
 
 -spec write_events(stock(), date(), [trade() | market_data()], [open_option()]) -> ok | {error, Reason::term()}.
 write_events(Stock, Date, Events, Options) ->
-  Path = stockdb_fs:path(Stock, Date),
-  {db, RealStock, RealDate} = stockdb_fs:file_info(Path),
-  stockdb_appender:write_events(Path, Events, [{stock,RealStock},{date,stockdb_fs:parse_date(RealDate)}|Options]).
+  Path = pulsedb_fs:path(Stock, Date),
+  {db, RealStock, RealDate} = pulsedb_fs:file_info(Path),
+  pulsedb_appender:write_events(Path, Events, [{stock,RealStock},{date,pulsedb_fs:parse_date(RealDate)}|Options]).
 
-%% @doc Fetch information from opened stockdb
--spec info(stockdb()) -> [{Key::atom(), Value::term()}].
-info(Stockdb) ->
-  stockdb_reader:file_info(Stockdb).
+%% @doc Fetch information from opened pulsedb
+-spec info(pulsedb()) -> [{Key::atom(), Value::term()}].
+info(pulsedb) ->
+  pulsedb_reader:file_info(pulsedb).
 
 %% @doc Fetch typical information about given Stock/Date
 -spec info(stock(), date()) -> [{Key::atom(), Value::term()}].
 info(Stock, Date) ->
-  stockdb_reader:file_info(stockdb_fs:path(Stock, Date)).
+  pulsedb_reader:file_info(pulsedb_fs:path(Stock, Date)).
 
 %% @doc Fetch requested information about given Stock/Date
 -spec info(stock(), date(), [Key::atom()]) -> [{Key::atom(), Value::term()}].
 info(Stock, Date, Fields) ->
-  stockdb_reader:file_info(stockdb_fs:path(Stock, Date), Fields).
+  pulsedb_reader:file_info(pulsedb_fs:path(Stock, Date), Fields).
 
 
 %% @doc Get all events from filtered stock/date
 -spec events({node, node()}, stock(), date(), [term()]) -> list(trade() | market_data()).
 events({node, Node}, Stock, Date, Filters) ->
-  {ok, Iterator} = rpc:call(Node, stockdb, init_reader, [Stock, Date, Filters]),
+  {ok, Iterator} = rpc:call(Node, pulsedb, init_reader, [Stock, Date, Filters]),
   events(Iterator).
 
 
@@ -141,23 +141,23 @@ events(Stock, Date, Filters) ->
 events(Stock, Date) ->
   events(Stock, Date, []).
 
-%% @doc Just read all events from stockdb
--spec events(stockdb()|iterator()) -> list(trade() | market_data()).
-events(#dbstate{} = Stockdb) ->
-  {ok, Iterator} = init_reader(Stockdb, []),
+%% @doc Just read all events from pulsedb
+-spec events(pulsedb()|iterator()) -> list(trade() | market_data()).
+events(#dbstate{} = pulsedb) ->
+  {ok, Iterator} = init_reader(pulsedb, []),
   events(Iterator);
 
 events(Iterator) ->
-  stockdb_iterator:all_events(Iterator).
+  pulsedb_iterator:all_events(Iterator).
 
-%% @doc Init iterator over opened stockdb
+%% @doc Init iterator over opened pulsedb
 % Options: 
 %    {range, Start, End}
 %    {filter, FilterFun, FilterArgs}
-% FilterFun is function in stockdb_filters
--spec init_reader(stockdb(), list(reader_option())) -> {ok, iterator()} | {error, Reason::term()}.
-init_reader(#dbstate{} = Stockdb, Filters) ->
-  case stockdb_iterator:init(Stockdb) of
+% FilterFun is function in pulsedb_filters
+-spec init_reader(pulsedb(), list(reader_option())) -> {ok, iterator()} | {error, Reason::term()}.
+init_reader(#dbstate{} = pulsedb, Filters) ->
+  case pulsedb_iterator:init(pulsedb) of
     {ok, Iterator} ->
       init_reader(Iterator, Filters);
     {error, _} = Error ->
@@ -171,8 +171,8 @@ init_reader(Iterator, Filters) ->
 -spec init_reader(stock(), date(), list(reader_option())) -> {ok, iterator()} | {error, Reason::term()}.
 init_reader(Stock, Date, Filters) ->
   case open_read(Stock, Date) of
-    {ok, Stockdb} ->
-      init_reader(Stockdb, Filters);
+    {ok, pulsedb} ->
+      init_reader(pulsedb, Filters);
     {error, _} = Error ->
       Error
   end.
@@ -180,9 +180,9 @@ init_reader(Stock, Date, Filters) ->
 
 apply_filter(Iterator, false) -> Iterator;
 apply_filter(Iterator, {range, Start, End}) ->
-  stockdb_iterator:set_range({Start, End}, Iterator);
+  pulsedb_iterator:set_range({Start, End}, Iterator);
 apply_filter(Iterator, {filter, Function, Args}) ->
-  stockdb_iterator:filter(Iterator, Function, Args).
+  pulsedb_iterator:filter(Iterator, Function, Args).
 
 apply_filters(Iterator, []) -> Iterator;
 apply_filters(Iterator, [Filter|MoreFilters]) ->
@@ -192,11 +192,11 @@ apply_filters(Iterator, [Filter|MoreFilters]) ->
 %% @doc Read next event from iterator
 -spec read_event(iterator()) -> {ok, trade() | market_data(), iterator()} | {eof, iterator()}.
 read_event(Iterator) ->
-  stockdb_iterator:read_event(Iterator).
+  pulsedb_iterator:read_event(Iterator).
 
-%% @doc close stockdb
--spec close(stockdb()) -> ok.
-close(#dbstate{file = F} = _Stockdb) ->
+%% @doc close pulsedb
+-spec close(pulsedb()) -> ok.
+close(#dbstate{file = F} = _pulsedb) ->
   case F of 
     undefined -> ok;
     _ -> file:close(F)
@@ -214,12 +214,12 @@ candle(Stock, Date) ->
 
 -spec candle(stock(), date(), list(reader_option())) -> {price(),price(),price(),price()}.
 candle(Stock, Date, Options) ->
-  stockdb_helpers:candle(Stock, Date, Options).
+  pulsedb_helpers:candle(Stock, Date, Options).
 
 % convert datetime or now() to millisecond timestamp
 -spec timestamp(calendar:datetime()|datetime_ms()|erlang:timestamp()) -> timestamp().
 timestamp(DateTime) ->
-  stockdb_helpers:timestamp(DateTime).
+  pulsedb_helpers:timestamp(DateTime).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %       Configuration
@@ -248,5 +248,5 @@ get_value(Key) ->
 
 %% @private
 run_tests() ->
-  eunit:test({application, stockdb}).
+  eunit:test({application, pulsedb}).
 

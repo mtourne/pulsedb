@@ -1,7 +1,7 @@
--module(stockdb_filters).
+-module(pulsedb_filters).
 -author('Max Lapshin <max@maxidoors.ru>').
 
--include("../include/stockdb.hrl").
+-include("../include/pulsedb.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 

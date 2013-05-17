@@ -1,15 +1,15 @@
-%%% @doc StockDB iterator module
-%%% It accepts stockdb state and operates only with its buffer
+%%% @doc pulsedb iterator module
+%%% It accepts pulsedb state and operates only with its buffer
 
--module(stockdb_iterator).
+-module(pulsedb_iterator).
 -author({"Danil Zagoskin", 'z@gosk.in'}).
 
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include("stockdb.hrl").
--include("../include/stockdb.hrl").
+-include("pulsedb.hrl").
+-include("../include/pulsedb.hrl").
 
-% Create new iterator from stockdb state
+% Create new iterator from pulsedb state
 -export([init/1]).
 
 % Apply filter
@@ -53,7 +53,7 @@ init(#dbstate{} = DBState) ->
 filter(Source, FilterFun) ->
   filter(Source, FilterFun, undefined).
 filter(Source, FilterFun, State0) when is_atom(FilterFun) ->
-  filter(Source, fun stockdb_filters:FilterFun/2, State0);
+  filter(Source, fun pulsedb_filters:FilterFun/2, State0);
 filter(Source, FilterFun, State0) when is_function(FilterFun, 2) ->
   create_filter(Source, FilterFun, State0).
 
@@ -188,15 +188,9 @@ all_events(Iterator, RevEvents) ->
   end.
 
 %% @doc get first event from buffer when State is db state at the beginning of it
-get_first_packet(Buffer, #dbstate{depth = Depth, last_md = LastMD, scale = Scale} = State) ->
-  {ok, Packet, Size} = stockdb_format:decode_packet(Buffer, Depth, LastMD, Scale),
-  NextState = case Packet of
-    #md{timestamp = Timestamp} ->
-      State#dbstate{last_timestamp = Timestamp, last_md = Packet};
-    #trade{timestamp = Timestamp} ->
-      State#dbstate{last_timestamp = Timestamp}
-  end,
-  {Packet, Size, NextState}.
+get_first_packet(Buffer, #dbstate{depth = Depth, last_row = LastRow} = State) ->
+  {ok, {row,Timestamp,_} = Row, Size} = pulsedb_format:decode_packet(Buffer, Depth, LastRow),
+  {Row, Size, State#dbstate{last_timestamp = Timestamp, last_row = Row}}.
 
 % Foldl: low-memory fold over entries
 foldl(Fun, Acc0, Iterator) ->

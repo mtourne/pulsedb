@@ -7,29 +7,23 @@
     mode :: read|append,
     buffer,
     buffer_end,
-    stock,
     date,
     depth,
-    scale,
     chunk_size,
-    last_md,
+    last_row,
     last_timestamp = 0,
-    last_bidask,
     next_chunk_time = 0,
     chunk_map_offset,
     chunk_map = [],
-    have_candle = false :: boolean(),
-    candle_offset,
-    candle = undefined,
     daystart
   }).
 
 
--define(STOCKDB_VERSION, 2).
+-define(PULSEDB_VERSION, 2).
 
 
--define(STOCKDB_OPTIONS, [
-    {version, ?STOCKDB_VERSION},
+-define(PULSEDB_OPTIONS, [
+    {version, ?PULSEDB_VERSION},
     {stock, undefined},
     {date, utcdate()},
     {depth, 10},
