@@ -38,7 +38,7 @@ validate(#dbstate{path = Path, file = File, chunk_map = ChunkMap, chunk_map_offs
     {ok, State1_} ->
       State1_;
     {error, State1_, BadOffset} ->
-      error_logger:error_msg("Database ~s is broken at offset ~B, truncating~n", [Path, BadOffset]),
+      error_logger:error_msg("Database ~s is broken at offset ~B, truncating~n", [Path, AbsOffset + BadOffset]),
       {ok, F} = file:open(Path, [write,read,binary,raw]),
       file:position(F, AbsOffset + BadOffset),
       file:truncate(F),
@@ -62,9 +62,9 @@ utc_to_daystart(UTC) ->
 validate_chunk(<<>>, _, State) ->
   {ok, State};
 
-validate_chunk(Chunk, Offset, #dbstate{last_row = Row, depth = Depth} = State) ->
+validate_chunk(Chunk, Offset, #dbstate{last_row = Row} = State) ->
   % ?debugFmt("decode_packet ~B/~B ~B ~B ~p", [Offset, size(Chunk),Depth, Scale, MD]),
-  case pulsedb_format:decode_packet(Chunk, Depth, Row) of
+  case pulsedb_format:decode_packet(Chunk, Row) of
     {ok, {row, TS, _} = NewRow, Size} ->
       <<_:Size/binary, Rest/binary>> = Chunk,
       validate_chunk(Rest, Offset + Size, State#dbstate{last_row = NewRow, last_timestamp = TS});

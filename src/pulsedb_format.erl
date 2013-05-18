@@ -52,9 +52,11 @@ append_full_values(Bin, [Value|Values]) ->
 -spec decode_full_row(Buffer::binary()) ->
   {Timestamp::integer(), Values::[Value::integer()], ByteCount::integer()}.
 decode_full_row(<<0:1, 0:1, Depth:8, Timestamp:54/integer, Tail/binary>>) ->
-  Values = [V || <<V:32/signed-integer>> <= Tail],
-  Depth = length(Values),
-  {Timestamp, Values, 8+Depth*4}.
+  Size = Depth*4,
+  <<Vals:Size/binary, _/binary>> = Tail,
+  Values = [V || <<V:32/signed-integer>> <= Vals],
+  Depth == length(Values) orelse error({invalid_count_of_values,Depth,length(Values)}),
+  {Timestamp, Values, 8+Size}.
 
 
 
@@ -121,7 +123,7 @@ decode_packet(Bin, PrevRow) ->
     do_decode_packet(Bin, PrevRow)
   catch
     Type:Message ->
-      {error, {Type, Message}}
+      {error, {Type, Message, erlang:get_stacktrace()}}
   end.
 
 do_decode_packet(Bin, PrevRow) ->
@@ -147,7 +149,7 @@ apply_delta({row, TS1, Values1}, {row, TS2, Values2}) ->
 %   {row, TS2 - TS1, lists:zipwith(fun(V1,V2) -> V2-V1 end,Values1, Values2)}.
 
 
-get_timestamp(<<1:1, Timestamp:63/integer, _/binary>>) ->
+get_timestamp(<<0:1, 0:1, _:8, Timestamp:54/integer, _/binary>>) ->
   Timestamp.
 
 

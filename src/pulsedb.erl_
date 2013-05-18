@@ -1,8 +1,9 @@
-%%% @doc Stock database
-%%% Designed for continious writing of stock data
+%%% @doc Pulse database
+%%% Designed for continious writing of pulse data
 %%% with later fast read and fast seek
 -module(pulsedb).
 -author({"Danil Zagoskin", 'z@gosk.in'}).
+-author("Max Lapshin <max@maxidoors.ru>").
 -include("../include/pulsedb.hrl").
 -include("log.hrl").
 -include("pulsedb.hrl").

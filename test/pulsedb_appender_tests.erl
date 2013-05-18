@@ -15,6 +15,18 @@ append_event_test() ->
   pulsedb_appender:close(P3).
 
 
+reopen_test() ->
+  file:delete("test3.pulse"),
+  {ok, P1} = pulsedb_appender:open("test3.pulse"),
+  {ok, P2} = pulsedb_appender:append({row, 1368872568737, [45,23]}, P1),
+  pulsedb_appender:close(P2),
+
+  {ok, P3} = pulsedb_appender:open("test3.pulse"),
+  {ok, P4} = pulsedb_appender:append({row, 1368872568747, [40,27]}, P3),
+  pulsedb_appender:close(P4).
+
+
+
 
 % -import(pulsedb_test_helper, [tempfile/1, tempdir/0, fixturefile/1, ensure_states_equal/2, write_events_to_file/2, append_events_to_file/2, ensure_packets_equal/2, chunk_content/1]).
 

@@ -188,8 +188,8 @@ all_events(Iterator, RevEvents) ->
   end.
 
 %% @doc get first event from buffer when State is db state at the beginning of it
-get_first_packet(Buffer, #dbstate{depth = Depth, last_row = LastRow} = State) ->
-  {ok, {row,Timestamp,_} = Row, Size} = pulsedb_format:decode_packet(Buffer, Depth, LastRow),
+get_first_packet(Buffer, #dbstate{last_row = LastRow} = State) ->
+  {ok, {row,Timestamp,_} = Row, Size} = pulsedb_format:decode_packet(Buffer, LastRow),
   {Row, Size, State#dbstate{last_timestamp = Timestamp, last_row = Row}}.
 
 % Foldl: low-memory fold over entries
@@ -213,6 +213,5 @@ do_foldl(Fun, AccIn, Iterator) ->
   end.
 
 
-packet_timestamp({md, Timestamp, _Bid, _Ask}) -> Timestamp;
-packet_timestamp({trade, Timestamp, _Price, _Volume}) -> Timestamp;
+packet_timestamp({row, Timestamp, _}) -> Timestamp;
 packet_timestamp(eof) -> undefined.

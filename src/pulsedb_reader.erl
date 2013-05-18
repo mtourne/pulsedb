@@ -49,8 +49,6 @@ open_existing_db(Path, Modes) ->
   {ok, SavedDBOpts, AfterHeaderOffset} = read_header(File),
 
   {version, Version} = lists:keyfind(version, 1, SavedDBOpts),
-  {date, Date} = lists:keyfind(date, 1, SavedDBOpts),
-  {depth, Depth} = lists:keyfind(depth, 1, SavedDBOpts),
   {chunk_size, ChunkSize} = lists:keyfind(chunk_size, 1, SavedDBOpts),
 
   ChunkMapOffset = AfterHeaderOffset,
@@ -58,8 +56,6 @@ open_existing_db(Path, Modes) ->
   State0 = #dbstate{
     mode = append,
     version = Version,
-    date = Date,
-    depth = Depth,
     chunk_size = ChunkSize,
     file = File,
     path = Path,
@@ -92,16 +88,13 @@ buffer_data(#dbstate{file = File, chunk_map_offset = ChunkMapOffset} = State) ->
   State#dbstate{buffer = Buffer}.
 
 
-candle_info(undefined, _) -> [];
-candle_info({O,H,L,C}, Scale) -> [{candle, {O/Scale,H/Scale,L/Scale,C/Scale}}].
-
 
 %% @doc return some file_info about opened pulsedb
 file_info(#dbstate{date = Date, path = Path}) ->
   [{path, Path},{date, Date}];
 
 file_info(FileName) ->
-  file_info(FileName, [path, date, version, depth]).
+  file_info(FileName, [path, date, version]).
 
 %% @doc read file info
 file_info(FileName, Fields) ->
