@@ -7,9 +7,12 @@
 -include("log.hrl").
 
 
--export([open/2, append/2, close/1]).
+-export([open/1, open/2, append/2, close/1]).
 -export([write_events/3]).
 
+
+open(Path) ->
+  open(Path, []).
 
 open(Path, Opts) ->
   case filelib:is_regular(Path) of
@@ -51,14 +54,11 @@ create_new_db(Path, Opts) ->
   {ok, 0} = file:position(File, bof),
   ok = file:truncate(File),
 
-  {date, Date} = lists:keyfind(date, 1, Opts),
   State = #dbstate{
     mode = append,
     version = ?PULSEDB_VERSION,
-    date = Date,
     sync = not lists:member(nosync, Opts),
     path = Path,
-    depth = proplists:get_value(depth, Opts, 1),
     chunk_size = proplists:get_value(chunk_size, Opts, 5*60)
   },
 
@@ -110,8 +110,8 @@ append({row, TS, _Values} = Event, #dbstate{next_chunk_time = NCT, file = File, 
   end.
 
 
-write_header(File, #dbstate{chunk_size = CS, date = Date, depth = Depth, version = Version}) ->
-  Opts = [{chunk_size,CS},{date,Date},{depth,Depth},{version,Version}],
+write_header(File, #dbstate{chunk_size = CS, version = Version}) ->
+  Opts = [{chunk_size,CS},{version,Version}],
   {ok, 0} = file:position(File, 0),
   ok = file:write(File, <<"#!/usr/bin/env pulsedb\n">>),
   lists:foreach(fun
@@ -133,8 +133,8 @@ write_chunk_map(File, #dbstate{chunk_size = ChunkSize}) ->
 
 
 
-start_chunk(Timestamp, Offset, #dbstate{daystart = undefined, date = Date} = State) ->
-  start_chunk(Timestamp, Offset, State#dbstate{daystart = daystart(Date)});
+start_chunk(Timestamp, Offset, #dbstate{daystart = undefined} = State) ->
+  start_chunk(Timestamp, Offset, State#dbstate{daystart = pulsedb_time:daystart(Timestamp)});
 
 start_chunk(Timestamp, Offset, #dbstate{daystart = Daystart, chunk_size = ChunkSize,
     chunk_map = ChunkMap} = State) ->
@@ -143,7 +143,7 @@ start_chunk(Timestamp, Offset, #dbstate{daystart = Daystart, chunk_size = ChunkS
   ChunkNumber = (Timestamp - Daystart) div ChunkSizeMs,
 
   % sanity check
-  (Timestamp - Daystart) < timer:hours(24) orelse erlang:error({not_this_day, Timestamp}),
+  (Timestamp - Daystart) < timer:hours(24) orelse erlang:error({not_this_day, Timestamp, Timestamp - Daystart}),
 
   ChunkOffset = current_chunk_offset(Offset, State),
   write_chunk_offset(ChunkNumber, ChunkOffset, State),
@@ -168,19 +168,22 @@ write_chunk_offset(ChunkNumber, ChunkOffset, #dbstate{file = File, chunk_map_off
   ok = file:pwrite(File, ChunkMapOffset + ChunkNumber*ByteOffsetLen, <<ChunkOffset:?OFFSETLEN/integer>>).
 
 
-append_full_row({row,Timestamp,Values}, #dbstate{depth = Depth, file = File} = State) ->
-  MD = {row,Timestamp,setdepth(Values, Depth)},
-  Data = pulsedb_format:encode_full_row(MD),
+append_full_row({row,Timestamp,Values}, #dbstate{file = File} = State) ->
+  Data = pulsedb_format:encode_full_row(Timestamp,Values),
   {ok, _EOF} = file:position(File, eof),
   ok = file:write(File, Data),
   {ok, State#dbstate{
       last_timestamp = Timestamp,
-      last_row = MD}
+      depth = length(Values),
+      last_row = {row,Timestamp,Values}}
   }.
 
-append_delta_row({row, Timestamp, Values}, #dbstate{depth = Depth, file = File, last_row = LastRow} = State) ->
-  MD = {row,Timestamp,setdepth(Values, Depth)},
-  Data = pulsedb_format:encode_delta_row(MD, LastRow),
+append_delta_row({row, Timestamp, Values}, #dbstate{file = File, last_row = {row,OldTS,OldValues}} = State) ->
+  NewValues = setdepth(Values, length(OldValues)),
+  MD = {row,Timestamp,NewValues},
+
+  Data = pulsedb_format:encode_delta_row(Timestamp - OldTS, 
+    lists:zipwith(fun(V1,V2) -> V2 - V1 end, OldValues, NewValues)),
   {ok, _EOF} = file:position(File, eof),
   ok = file:write(File, Data),
   {ok, State#dbstate{
@@ -197,9 +200,6 @@ setdepth([Q|Quotes], Depth) ->
   [Q|setdepth(Quotes, Depth - 1)].
 
 
-daystart(Date) ->
-  DaystartSeconds = calendar:datetime_to_gregorian_seconds({Date, {0,0,0}}) - calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
-  DaystartSeconds * 1000.
 
 
 
