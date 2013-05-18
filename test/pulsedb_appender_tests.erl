@@ -5,6 +5,7 @@
 open_new_test() ->
   file:delete("test1.pulse"),
   {ok, P1} = pulsedb_appender:open("test1.pulse"),
+  pulsedb_appender:close(P1),
   ok.
 
 append_event_test() ->
@@ -24,6 +25,29 @@ reopen_test() ->
   {ok, P3} = pulsedb_appender:open("test3.pulse"),
   {ok, P4} = pulsedb_appender:append({row, 1368872568747, [40,27]}, P3),
   pulsedb_appender:close(P4).
+
+change_depth_test() ->
+  file:delete("test4.pulse"),
+  {ok, P1} = pulsedb_appender:open("test4.pulse"),
+  {ok, P2} = pulsedb_appender:append({row, 1368872568737, [45,23]}, P1),
+  {ok, P3} = pulsedb_appender:append({row, 1368872568747, [40,27]}, P2),
+  {ok, P4} = pulsedb_appender:append({row, 1368872568757, [40,27,15]}, P3),
+
+  {ok, P5} = pulsedb_appender:append({row, 1368872928747, [20,27,54]}, P4),
+  {ok, P6} = pulsedb_appender:append({row, 1368872928757, [5,7,34]}, P5),
+
+  pulsedb_appender:close(P6),
+
+  {ok, R} = pulsedb_reader:open("test4.pulse"),
+  {ok, I1} = pulsedb_iterator:init(R),
+  {{row, 1368872568737, [45,23]},I2} = pulsedb_iterator:read_event(I1),
+  {{row, 1368872568747, [40,27]},I3} = pulsedb_iterator:read_event(I2),
+  {{row, 1368872568757, [40,27]},I4} = pulsedb_iterator:read_event(I3),
+
+  {{row, 1368872928747, [20,27,54]},I5} = pulsedb_iterator:read_event(I4),
+  {{row, 1368872928757, [5,7,34]},I6} = pulsedb_iterator:read_event(I5),
+  {eof,_} = pulsedb_iterator:read_event(I6),
+  ok.
 
 
 
