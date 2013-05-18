@@ -1,40 +1,41 @@
-Stockdb
+Pulsedb
 =======
 
 
-This library is a storage for Stock Exchange quotes.
+This library is a storage for statistics like network usage, load, etc..
 
-It is an append-only online-compress storage, that supports failover, indexing and simple lookups of stored quotes.
+It is an append-only online-compress storage, that supports failover, indexing and simple lookups of stored data.
 
-It can compress 400 000 daily quotes into 4 MB of disk storage.
+It can compress 400 000 rows with 40 numbers into 4 MB of disk storage.
+
 
 Usage
 =====
 
 First install and compile it. Include it as a rebar dependency.
 
-It can be used either as an appender, either as reader. You cannot mix these two modes now.
+It can be used either as an appender, either as reader. These two modes have different API and one database
+cannot be opened in two modes simultaneously.
+
 
 Writing database: Appender
 ==========================
 
 Typical workflow when appending data to DB:
 
-    {ok, Appender} = stockdb:open_append('NASDAQ.AAPL', "2012-01-15", [{depth, 2}]),
-    {ok, Appender1} = stockdb:append({md, 1326601810453, [{450.1,100},{449.56,1000}], [{452.43,20},{454.15,40}]}, Appender),
-    stockdb:close(Appender1).
+    {ok, Appender} = pulsedb:open_append("user15/eth0", [{depth, 2}]),
+    {ok, Appender1} = pulsedb:append({row, 1326601810453, [45464,642656654], Appender),
+    pulsedb:close(Appender1).
 
 
 Now lets explain, what is happening.
 
-* Open appender. Stock name should be a symbol, date should either erlang date `{YYYY,MM,DD}`, either a string `"YYYY-MM-DD"`.
-* Don't forget to specify proper depth. If you skip it, default depth is 1 and you will save only best bid and best ask
-* Specify also `{scale, 1000}` option, if you want to store quotes with precision less than 1 cent. Stockdb stores your prices as int: `round(Price*Scale)`
-* Now append market data.
-* Market data is following: ```{md, UtcMilliseconds, [{L1BidPrice,L1BidSize},{L2BidPrice,L2BidSize}..], [{L1AskPrice,L2AskSize}..]}```
-* You can include ```-include_lib("stockdb/include/stockdb.hrl").``` to use ```#md{}``` and ```#trade{}``` records
+* Open appender. First argument is a directory name. pulsedb will save data somewhere under this directory.
+* Don't forget to specify proper depth. If you skip it, default depth is 1 and you will save only one number in the row
+* Now append rows.
+* Row data is following: ```{row, UtcMilliseconds, [Value1,Value2,...]}```
 
-Now take a look at db/stock folder. There you can see new file `db/stock/NASDAQ.AAPL-2012-01-15.stock` and now you can read back stocks from it.
+Now take a look at user15/eth0 folder. There you can see new file `user15/eth0/2012/01/15.pulse` and now you can read back rows from it.
 
 
 Reading database
@@ -45,14 +46,10 @@ Read whole DB
 
 The most simple way is just to read all daily events to replaying them
 
-    {ok, Events} = stockdb:events('NASDAQ.AAPL', "2012-01-15").
+    {ok, Events1} = pulsedb:events("user15/eth0", {2012,05,10}, {2012,05,11}).
 
-Get candle for whole day or specified time range:
+    {ok, Events2} = pulsedb:events("user15/eth0", {{2012,05,10}, {14,32,34}}, {{2012,05,10}, {18,32,34}}).
 
-    DayCandleEvents = stockdb:events('NASDAQ.AAPL', "2012-08-10", [{filter, candle, [{period, undefined}]}]).
-    RangeCandleEvents = stockdb:events('NASDAQ.AAPL', "2012-08-10", [{range, {15,0,0}, {16,0,0}}, {filter, candle, [{period, undefined}]}]).
-
-But there are possible more enhanced ways of limiting amount of loaded data.
 
 
 Iterator

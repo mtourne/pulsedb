@@ -9,23 +9,18 @@
 
 -type pulsedb() :: {pulsedb_pid, pid()} | term().
 
--type price() :: float().
--type volume() :: non_neg_integer().
--type quote() :: {price(), volume()}.
+-type value() :: integer().
 -type timestamp() :: non_neg_integer().
--type stock() :: atom().
 -type date() :: string().
 
 -type datetime_ms() :: {calendar:date(), time_ms()}.
 -type time_ms() :: {calendar:hour(), calendar:minute(), calendar:second(), millisecond()}.
 -type millisecond() :: 0..999.
 
--type market_data() :: #md{}.
--type trade() :: #trade{}.
 
+-type row() :: {row, Timestamp::timestamp(), [value()]}.
 
--export_type([pulsedb/0, price/0, volume/0, quote/0, timestamp/0, stock/0, date/0]).
--export_type([market_data/0, trade/0]).
+-export_type([pulsedb/0, value/0, timestamp/0, date/0, row/0]).
 
 
 %% Application configuration
@@ -37,14 +32,14 @@
 -export([info/1, info/2, info/3]).
 
 %% Writing DB
--export([open_append/3, append/2, close/1, write_events/3, write_events/4]).
+-export([open_append/3, append/2, close/1, write_events/2]).
 %% Reading existing data
--export([open_read/2, events/1, events/2, events/3, events/4]).
+-export([open_read/2, events/1, events/3]).
 %% Iterator API
 -export([init_reader/2, init_reader/3, read_event/1]).
 
 %% Shortcut helpers
--export([timestamp/1, candle/2, candle/3]).
+-export([timestamp/1]).
 
 %% Run tests
 -export([run_tests/0]).
@@ -89,17 +84,16 @@ open_append(Stock, Date, Opts) ->
   pulsedb_appender:open(Path, [{stock,RealStock},{date,pulsedb_fs:parse_date(RealDate)}|Opts]).
 
 %% @doc Append row to db
--spec append(pulsedb(), trade() | market_data()) -> {ok, pulsedb()} | {error, Reason::term()}.
-append(Event, pulsedb) ->
-  pulsedb_appender:append(Event, pulsedb).
+-spec append(pulsedb(), row()) -> {ok, pulsedb()} | {error, Reason::term()}.
+append(Event, Pulsedb) ->
+  pulsedb_appender:append(Event, Pulsedb).
 
--spec write_events(stock(), date(), [trade() | market_data()]) -> ok | {error, Reason::term()}.
-write_events(Stock, Date, Events) ->
-  write_events(Stock, Date, Events, []).
+-spec write_events(path(), [row()]) -> ok | {error, Reason::term()}.
+write_events(Path, Events) ->
+  write_events(Path, Events, []).
 
--spec write_events(stock(), date(), [trade() | market_data()], [open_option()]) -> ok | {error, Reason::term()}.
-write_events(Stock, Date, Events, Options) ->
-  Path = pulsedb_fs:path(Stock, Date),
+-spec write_events(path(), [row()], [open_option()]) -> ok | {error, Reason::term()}.
+write_events(Path, Date, Events, Options) ->
   {db, RealStock, RealDate} = pulsedb_fs:file_info(Path),
   pulsedb_appender:write_events(Path, Events, [{stock,RealStock},{date,pulsedb_fs:parse_date(RealDate)}|Options]).
 
@@ -114,37 +108,21 @@ info(Stock, Date) ->
   pulsedb_reader:file_info(pulsedb_fs:path(Stock, Date)).
 
 %% @doc Fetch requested information about given Stock/Date
--spec info(stock(), date(), [Key::atom()]) -> [{Key::atom(), Value::term()}].
-info(Stock, Date, Fields) ->
+-spec info(path(), date(), [Key::atom()]) -> [{Key::atom(), Value::term()}].
+info(Path, Date, Fields) ->
   pulsedb_reader:file_info(pulsedb_fs:path(Stock, Date), Fields).
 
 
 %% @doc Get all events from filtered stock/date
--spec events({node, node()}, stock(), date(), [term()]) -> list(trade() | market_data()).
-events({node, Node}, Stock, Date, Filters) ->
-  {ok, Iterator} = rpc:call(Node, pulsedb, init_reader, [Stock, Date, Filters]),
+-spec events(path(), date(), date()) -> list(row()).
+events(Stock, From, To) ->
+  {ok, Iterator} = init_reader(Stock, From, To),
   events(Iterator).
 
-
-%% @doc Get all events from filtered stock/date
--spec events(stock(), date(), [term()]) -> list(trade() | market_data()).
-events(Stock, Date, Filters) ->
-  case init_reader(Stock, Date, Filters) of
-    {ok, Iterator} ->
-      events(Iterator);
-    {error, nofile} ->
-      []
-  end.
-
-%% @doc Read all events for stock and date
--spec events(stock(), date()) -> list(trade() | market_data()).
-events(Stock, Date) ->
-  events(Stock, Date, []).
-
 %% @doc Just read all events from pulsedb
--spec events(pulsedb()|iterator()) -> list(trade() | market_data()).
-events(#dbstate{} = pulsedb) ->
-  {ok, Iterator} = init_reader(pulsedb, []),
+-spec events(pulsedb()|iterator()) -> list(row()).
+events(#dbstate{} = Stockdb) ->
+  {ok, Iterator} = init_reader(Stockdb, []),
   events(Iterator);
 
 events(Iterator) ->
@@ -178,19 +156,9 @@ init_reader(Stock, Date, Filters) ->
   end.
 
 
-apply_filter(Iterator, false) -> Iterator;
-apply_filter(Iterator, {range, Start, End}) ->
-  pulsedb_iterator:set_range({Start, End}, Iterator);
-apply_filter(Iterator, {filter, Function, Args}) ->
-  pulsedb_iterator:filter(Iterator, Function, Args).
-
-apply_filters(Iterator, []) -> Iterator;
-apply_filters(Iterator, [Filter|MoreFilters]) ->
-  apply_filters(apply_filter(Iterator, Filter), MoreFilters).
-
 
 %% @doc Read next event from iterator
--spec read_event(iterator()) -> {ok, trade() | market_data(), iterator()} | {eof, iterator()}.
+-spec read_event(iterator()) -> {ok, row(), iterator()} | {eof, iterator()}.
 read_event(Iterator) ->
   pulsedb_iterator:read_event(Iterator).
 
@@ -204,17 +172,6 @@ close(#dbstate{file = F} = _pulsedb) ->
   ok.
 
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%       Helpers
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec candle(stock(), date()) -> {price(),price(),price(),price()}.
-candle(Stock, Date) ->
-  candle(Stock, Date, []).
-
-
--spec candle(stock(), date(), list(reader_option())) -> {price(),price(),price(),price()}.
-candle(Stock, Date, Options) ->
-  pulsedb_helpers:candle(Stock, Date, Options).
 
 % convert datetime or now() to millisecond timestamp
 -spec timestamp(calendar:datetime()|datetime_ms()|erlang:timestamp()) -> timestamp().

@@ -20,8 +20,7 @@ open(Path, Opts) ->
   end.
 
 
-close(#dbstate{file = File} = State) ->
-  write_candle(State),
+close(#dbstate{file = File} = _State) ->
   file:close(File),
   ok.
 
@@ -52,32 +51,22 @@ create_new_db(Path, Opts) ->
   {ok, 0} = file:position(File, bof),
   ok = file:truncate(File),
 
-  {stock, Stock} = lists:keyfind(stock, 1, Opts),
   {date, Date} = lists:keyfind(date, 1, Opts),
   State = #dbstate{
     mode = append,
-    version = ?pulsedb_VERSION,
-    stock = Stock,
+    version = ?PULSEDB_VERSION,
     date = Date,
     sync = not lists:member(nosync, Opts),
     path = Path,
-    have_candle = proplists:get_value(have_candle, Opts, true),
     depth = proplists:get_value(depth, Opts, 1),
-    scale = proplists:get_value(scale, Opts, 100),
     chunk_size = proplists:get_value(chunk_size, Opts, 5*60)
   },
 
-  {ok, CandleOffset0} = write_header(File, State),
-  CandleOffset = case State#dbstate.have_candle of
-    true -> CandleOffset0;
-    false -> undefined
-  end,
-  {ok, ChunkMapOffset} = write_candle(File, State),
+  {ok, ChunkMapOffset} = write_header(File, State),
   {ok, _CMSize} = write_chunk_map(File, State),
 
   {ok, State#dbstate{
       file = File,
-      candle_offset = CandleOffset,
       chunk_map_offset = ChunkMapOffset
     }}.
 
@@ -87,76 +76,51 @@ open_existing_db(Path, _Opts) ->
 
 
 % Validate event and return {Type, Timestamp} if valid
-validate_event(#md{timestamp = TS, bid = Bid, ask = Ask} = Event) ->
-  valid_bidask(Bid) orelse erlang:throw({?MODULE, bad_bid, Event}),
-  valid_bidask(Ask) orelse erlang:throw({?MODULE, bad_ask, Event}),
+validate_event({row, TS, Values} = Event) ->
+  valid_values(Values) orelse erlang:throw({?MODULE, bad_values, Event}),
   is_integer(TS) andalso TS > 0 orelse erlang:throw({?MODULE, bad_timestamp, Event}),
-  {md, TS};
-
-validate_event(#trade{timestamp = TS, price = P, volume = V} = Event) ->
-  is_number(P) orelse erlang:throw({?MODULE, bad_price, Event}),
-  is_integer(V) andalso V >= 0 orelse erlang:throw({?MODULE, bad_volume, Event}),
-  is_integer(TS) andalso TS > 0 orelse erlang:throw({?MODULE, bad_timestamp, Event}),
-  {trade, TS};
+  ok;
 
 validate_event(Event) ->
   erlang:throw({?MODULE, invalid_event, Event}).
 
 
-valid_bidask([{P,V}|_]) when is_number(P) andalso is_integer(V) andalso V >= 0 ->
-  true;
-valid_bidask(_) -> false.
+valid_values([V|Values]) when is_integer(V) -> valid_values(Values);
+valid_values([]) -> true;
+valid_values(_) -> false.
 
 
 append(_Event, #dbstate{mode = Mode}) when Mode =/= append ->
   {error, reopen_in_append_mode};
 
-append(Event, #dbstate{next_chunk_time = NCT, file = File, last_md = LastMD, sync = Sync} = State) ->
-  {Type, Timestamp} = validate_event(Event),
+append({row, TS, _Values} = Event, #dbstate{next_chunk_time = NCT, file = File, last_row = LastRow, sync = Sync} = State) ->
+  validate_event(Event),
   if
-    (Timestamp >= NCT orelse NCT == undefined) ->
+    (TS >= NCT orelse NCT == undefined) ->
       {ok, EOF} = file:position(File, eof),
-      {ok, State_} = append_first_event(Event, State),
+      {ok, State_} = append_full_row(Event, State),
       if Sync -> file:sync(File); true -> ok end,
-      {ok, State1_} = start_chunk(Timestamp, EOF, State_),
+      {ok, State1_} = start_chunk(TS, EOF, State_),
       if Sync -> file:sync(File); true -> ok end,
       {ok, State1_};
-    LastMD == undefined andalso Type == md ->
-      append_full_md(Event, State);
-    Type == md ->
-      append_delta_md(Event, State);
-    Type == trade ->
-      append_trade(Event, State)
+    LastRow == undefined ->
+      append_full_row(Event, State);
+    true ->
+      append_delta_row(Event, State)
   end.
 
-append_first_event(Event, State) when is_record(Event, md) ->
-  append_full_md(Event, State);
 
-append_first_event(Event, State) when is_record(Event, trade) ->
-  append_trade(Event, State#dbstate{last_md = undefined}).
-
-
-write_header(File, #dbstate{chunk_size = CS, date = Date, depth = Depth, scale = Scale, stock = Stock, version = Version,
-  have_candle = HaveCandle}) ->
-  pulsedbOpts = [{chunk_size,CS},{date,Date},{depth,Depth},{scale,Scale},{stock,Stock},{version,Version},{have_candle,HaveCandle}],
+write_header(File, #dbstate{chunk_size = CS, date = Date, depth = Depth, version = Version}) ->
+  Opts = [{chunk_size,CS},{date,Date},{depth,Depth},{version,Version}],
   {ok, 0} = file:position(File, 0),
   ok = file:write(File, <<"#!/usr/bin/env pulsedb\n">>),
   lists:foreach(fun
-    ({have_candle,false}) ->
-      ok;
     ({Key, Value}) ->
       ok = file:write(File, [io_lib:print(Key), ": ", pulsedb_format:format_header_value(Key, Value), "\n"])
-    end, pulsedbOpts),
+    end, Opts),
   ok = file:write(File, "\n"),
   file:position(File, cur).
 
-
-write_candle(File, #dbstate{have_candle = true}) ->
-  file:write(File, <<0:32, 0:32, 0:32, 0:32>>),
-  file:position(File, cur);
-
-write_candle(File, #dbstate{have_candle = false}) ->
-  file:position(File, cur).
 
 write_chunk_map(File, #dbstate{chunk_size = ChunkSize}) ->
   ChunkCount = ?NUMBER_OF_CHUNKS(ChunkSize),
@@ -191,14 +155,8 @@ start_chunk(Timestamp, Offset, #dbstate{daystart = Daystart, chunk_size = ChunkS
   State1 = State#dbstate{
     chunk_map = ChunkMap ++ [Chunk],
     next_chunk_time = NextChunkTime},
-  write_candle(State1),
   {ok, State1}.
 
-
-write_candle(#dbstate{have_candle = false}) ->  ok;
-write_candle(#dbstate{candle = undefined}) -> ok;
-write_candle(#dbstate{have_candle = true, candle_offset = CandleOffset, candle = {O,H,L,C}, file = File}) ->
-  ok = file:pwrite(File, CandleOffset, <<1:1, O:31, H:32, L:32, C:32>>).
 
 
 
@@ -210,47 +168,31 @@ write_chunk_offset(ChunkNumber, ChunkOffset, #dbstate{file = File, chunk_map_off
   ok = file:pwrite(File, ChunkMapOffset + ChunkNumber*ByteOffsetLen, <<ChunkOffset:?OFFSETLEN/integer>>).
 
 
-append_full_md(#md{timestamp = Timestamp} = MD, #dbstate{depth = Depth, file = File, scale = Scale} = State) ->
-  DepthSetMD = setdepth(MD, Depth),
-  Data = pulsedb_format:encode_full_md(DepthSetMD, Scale),
+append_full_row({row,Timestamp,Values}, #dbstate{depth = Depth, file = File} = State) ->
+  MD = {row,Timestamp,setdepth(Values, Depth)},
+  Data = pulsedb_format:encode_full_row(MD),
   {ok, _EOF} = file:position(File, eof),
   ok = file:write(File, Data),
   {ok, State#dbstate{
       last_timestamp = Timestamp,
-      last_md = DepthSetMD}
+      last_row = MD}
   }.
 
-append_delta_md(#md{timestamp = Timestamp} = MD, #dbstate{depth = Depth, file = File, last_md = LastMD, scale = Scale} = State) ->
-  DepthSetMD = setdepth(MD, Depth),
-  Data = pulsedb_format:encode_delta_md(DepthSetMD, LastMD, Scale),
+append_delta_row({row, Timestamp, Values}, #dbstate{depth = Depth, file = File, last_row = LastRow} = State) ->
+  MD = {row,Timestamp,setdepth(Values, Depth)},
+  Data = pulsedb_format:encode_delta_row(MD, LastRow),
   {ok, _EOF} = file:position(File, eof),
   ok = file:write(File, Data),
   {ok, State#dbstate{
       last_timestamp = Timestamp,
-      last_md = DepthSetMD}
+      last_row = MD}
   }.
 
-append_trade(#trade{timestamp = Timestamp, price = Price} = Trade, 
-  #dbstate{file = File, scale = Scale, candle = Candle, have_candle = HaveCandle} = State) ->
-  Data = pulsedb_format:encode_trade(Trade, Scale),
-  {ok, _EOF} = file:position(File, eof),
-  ok = file:write(File, Data),
-  Candle1 = case HaveCandle of
-    true -> candle(Candle, round(Price*Scale));
-    false -> Candle
-  end,
-  {ok, State#dbstate{last_timestamp = Timestamp, candle = Candle1}}.
-
-
-setdepth(#md{bid = Bid, ask = Ask} = MD, Depth) ->
-  MD#md{
-    bid = setdepth(Bid, Depth),
-    ask = setdepth(Ask, Depth)};
 
 setdepth(_Quotes, 0) ->
   [];
 setdepth([], Depth) ->
-  [{0, 0} || _ <- lists:seq(1, Depth)];
+  [0 || _ <- lists:seq(1, Depth)];
 setdepth([Q|Quotes], Depth) ->
   [Q|setdepth(Quotes, Depth - 1)].
 
@@ -260,10 +202,6 @@ daystart(Date) ->
   DaystartSeconds * 1000.
 
 
-candle(undefined, Price) -> {Price, Price, Price, Price};
-candle({O,H,L,_C}, Price) when Price > H -> {O,Price,L,Price};
-candle({O,H,L,_C}, Price) when Price < L -> {O,H,Price,Price};
-candle({O,H,L,_C}, Price) -> {O,H,L,Price}.
 
 
 

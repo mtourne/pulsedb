@@ -2,8 +2,8 @@
 %%% Testing stuff.
 -compile(export_all).
 -include_lib("eunit/include/eunit.hrl").
--include("../include/stockdb.hrl").
--include("stockdb.hrl").
+-include("../include/pulsedb.hrl").
+-include("../src/pulsedb.hrl").
 
 assertEqualMD(MD1, MD2, Opts) ->
   case compare_md(MD1, MD2) of

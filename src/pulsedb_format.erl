@@ -11,13 +11,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("../include/pulsedb.hrl").
 
--on_load(init_nif/0).
+% -on_load(init_nif/0).
 
--export([encode_full_row/2, decode_full_row/2]).
+-export([encode_full_row/2, decode_full_row/1]).
 -export([encode_delta_row/2, decode_delta_row/2]).
 -export([format_header_value/2, parse_header_value/2]).
 
--export([decode_packet/2, decode_packet/3]).
+-export([decode_packet/2]).
 -export([get_timestamp/1]).
 
 
@@ -37,20 +37,21 @@ nested_foldl(Fun, Acc, Element) ->
   Fun(Element, Acc).
 
 
-
 %% @doc Encode full MD packet with given timestamp and (nested) bid/ask list
 -spec encode_full_row(Timestamp::integer(), Values::[Value::integer()]) -> iolist().
 encode_full_row(Timestamp, Values) when is_integer(Timestamp) andalso is_list(Values) ->
-  append_full_values(<<1:1, Timestamp:63/integer>>, Values).
+  append_full_values(<<0:1, 0:1, (length(Values)):8, Timestamp:54/integer>>, Values).
 
 append_full_values(Bin, []) -> Bin;
 append_full_values(Bin, [Value|Values]) ->
   append_full_values(<<Bin/binary, Value:32/signed-integer>>, Values).
 
 
--spec decode_full_row(Buffer::binary(), Depth::integer()) ->
+
+
+-spec decode_full_row(Buffer::binary()) ->
   {Timestamp::integer(), Values::[Value::integer()], ByteCount::integer()}.
-decode_full_row(<<1:1, Timestamp:63/integer, Tail/binary>>, Depth) ->
+decode_full_row(<<0:1, 0:1, Depth:8, Timestamp:54/integer, Tail/binary>>) ->
   Values = [V || <<V:32/signed-integer>> <= Tail],
   Depth = length(Values),
   {Timestamp, Values, 8+Depth*4}.
@@ -61,7 +62,7 @@ decode_full_row(<<1:1, Timestamp:63/integer, Tail/binary>>, Depth) ->
 -spec encode_delta_row(TimeDelta::integer(), ValueDelta::[Delta::integer()]) -> iolist().
 encode_delta_row(TimeDelta, ValueDelta) ->
   % Bit mask length is 4*Depth, so wee can align it to 4 bits, leaving extra space for future
-  Header = <<0:1/integer>>,
+  Header = <<0:1, 1:1>>,
   TimeBin = leb128:encode(TimeDelta),
 
   {HBitMask, DataBin} = nested_foldl(fun(Value, {_Bitmask, _DataBin} = AccIn) ->
@@ -88,12 +89,10 @@ pad_to_octets(BS) ->
 
 -spec decode_delta_row(Buffer::binary(), Depth::integer()) ->
   {TimeDelta::integer(), Values::[Value::integer()], ByteCount::integer()}.
-decode_delta_row(<<0:1, _/bitstring>> = Bin, Depth) ->
-  % Calculate bitmask size
-  % Actually, Size - 4, but it will fail with zero depth
-  BMPadSize = (Depth + 1) rem 8,
-  % Parse packet
-  <<_:1, BitMask:Depth/bitstring, _:BMPadSize/bitstring, DataTail/binary>> = Bin,
+decode_delta_row(<<0:1, 1:1, _/bitstring>> = Bin, Depth) ->
+  BMPadSize = (8 - ((Depth + 2) rem 8)) rem 8,
+  <<0:1, 1:1, BitMask:Depth/bitstring, _:BMPadSize/bitstring, DataTail/binary>> = Bin,
+
   {TimeDelta, Values_Tail} = leb128:decode(DataTail),
   {Values, Tail} = decode_deltas(Values_Tail, BitMask),
   ByteCount = erlang:byte_size(Bin) - erlang:byte_size(Tail),
@@ -113,50 +112,27 @@ get_delta_field(1, Data) ->
 
 
 
-%% @doc Univeral decoding function: takes binary and depth, returns packet and its size
--spec decode_packet(Bin::binary(), Depth::integer()) -> {ok, Packet::term(), Size::integer()}|{error, Reason::term()}.
-decode_packet(Bin, Depth) ->
-  try
-    do_decode_packet(Bin, Depth)
-  catch
-    Type:Message ->
-      {error, {Type, Message}}
-  end.
-
-do_decode_packet(Bin, Depth) ->
-  do_decode_packet_erl(Bin, Depth).
-
-do_decode_packet_erl(<<1:1, _/bitstring>> = Bin, Depth) ->
-  {Timestamp, Values, Size} = decode_full_row(Bin, Depth),
-  {ok, {row,Timestamp, Values}, Size};
-
-do_decode_packet_erl(<<0:1, _/bitstring>> = Bin, Depth) ->
-  {TimeDelta, Values, Size} = decode_delta_row(Bin, Depth),
-  {ok, {delta_row, TimeDelta, Values}, Size}.
-
-
 
 %% @doc Main decoding function: takes binary and depth, returns packet type, body and size
--spec decode_packet(Bin::binary(), Depth::integer(), PrevRow::term()) ->
+-spec decode_packet(Bin::binary(), PrevRow::term()) ->
   {ok, Packet::term(), Size::integer()} | {error, Reason::term()}.
-decode_packet(Bin, Depth, PrevRow) ->
+decode_packet(Bin, PrevRow) ->
   try
-    do_decode_packet(Bin, Depth, PrevRow)
+    do_decode_packet(Bin, PrevRow)
   catch
     Type:Message ->
       {error, {Type, Message}}
   end.
 
+do_decode_packet(Bin, PrevRow) ->
+  do_decode_packet_erl(Bin, PrevRow).
 
-do_decode_packet(Bin, Depth, PrevRow) ->
-  do_decode_packet_erl(Bin, Depth, PrevRow).
-
-do_decode_packet_erl(<<1:1, _/bitstring>> = Bin, Depth, _PrevRow) ->
-  {Timestamp, Values, Size} = decode_full_row(Bin, Depth),
+do_decode_packet_erl(<<0:1, 0:1, _/bitstring>> = Bin, _PrevRow) ->
+  {Timestamp, Values, Size} = decode_full_row(Bin),
   {ok, {row, Timestamp, Values}, Size};
 
-do_decode_packet_erl(<<0:1, _/bitstring>> = Bin, Depth, PrevRow) ->
-  {TimeDelta, Values, Size} = decode_delta_row(Bin, Depth),
+do_decode_packet_erl(<<0:1, 1:1, _/bitstring>> = Bin, {row,_,PrevValues}=PrevRow) ->
+  {TimeDelta, Values, Size} = decode_delta_row(Bin, length(PrevValues)),
   Result = apply_delta(PrevRow, {row, TimeDelta, Values}),
   {ok, Result, Size}.
 
@@ -166,9 +142,9 @@ do_decode_packet_erl(<<0:1, _/bitstring>> = Bin, Depth, PrevRow) ->
 apply_delta({row, TS1, Values1}, {row, TS2, Values2}) ->
   {row, TS1 + TS2, lists:zipwith(fun(V1,V2) -> V1+V2 end,Values1, Values2)}.
 
-%% Utility: get delta md where first argument is old value, second is new one
-compute_delta({row, TS1, Values1}, {row, TS2, Values2}) ->
-  {row, TS2 - TS1, lists:zipwith(fun(V1,V2) -> V2-V1 end,Values1, Values2)}.
+% %% Utility: get delta md where first argument is old value, second is new one
+% compute_delta({row, TS1, Values1}, {row, TS2, Values2}) ->
+%   {row, TS2 - TS1, lists:zipwith(fun(V1,V2) -> V2-V1 end,Values1, Values2)}.
 
 
 get_timestamp(<<1:1, Timestamp:63/integer, _/binary>>) ->
