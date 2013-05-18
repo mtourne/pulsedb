@@ -8,7 +8,6 @@
     buffer,
     buffer_end,
     date,
-    depth,
     chunk_size,
     last_row,
     last_timestamp = 0,

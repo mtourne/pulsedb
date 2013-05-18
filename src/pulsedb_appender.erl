@@ -174,7 +174,6 @@ append_full_row({row,Timestamp,Values}, #dbstate{file = File} = State) ->
   ok = file:write(File, Data),
   {ok, State#dbstate{
       last_timestamp = Timestamp,
-      depth = length(Values),
       last_row = {row,Timestamp,Values}}
   }.
 
