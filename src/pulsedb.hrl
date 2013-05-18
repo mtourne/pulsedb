@@ -4,6 +4,8 @@
     sync = true,
     file,
     path,
+    meta_path,
+    current_day,
     mode :: read|append,
     buffer,
     buffer_end,

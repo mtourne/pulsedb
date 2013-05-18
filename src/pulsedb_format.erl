@@ -62,7 +62,7 @@ decode_full_row(<<0:1, 0:1, Depth:8, Timestamp:54/integer, Tail/binary>>) ->
 
 %% @doc Encode delta MD packet with given timestamp delta and (nested) bid/ask delta list
 -spec encode_delta_row(TimeDelta::integer(), ValueDelta::[Delta::integer()]) -> iolist().
-encode_delta_row(TimeDelta, ValueDelta) ->
+encode_delta_row(TimeDelta, ValueDelta) when TimeDelta >= 0 ->
   % Bit mask length is 4*Depth, so wee can align it to 4 bits, leaving extra space for future
   Header = <<0:1, 1:1>>,
   TimeBin = leb128:encode(TimeDelta),
