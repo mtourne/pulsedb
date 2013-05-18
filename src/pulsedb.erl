@@ -27,9 +27,13 @@
 %% Writing DB
 -export([open_append/1, append/2, close/1]).
 
-% -export([open_append/3, append/2, close/1, write_events/2]).
-% %% Reading existing data
-% -export([open_read/1, events/3]).
+% -export([write_events/2]).
+
+%% Reading existing data
+-export([events/2]).
+% open_read/1, 
+
+
 % %% Iterator API
 % -export([init_reader/2, init_reader/3, read_event/1]).
 
@@ -66,11 +70,13 @@ append(Event, Pulsedb) ->
 %   pulsedb_reader:file_info(Pulsedb).
 
 
-% %% @doc Get all events from filtered stock/date
-% -spec events(path(), date(), date()) -> list(row()).
-% events(Stock, From, To) ->
-%   {ok, Iterator} = init_reader(Stock, From, To),
-%   events(Iterator).
+%% @doc Get all events
+-spec events(file:path(), date()) -> list(row()).
+events(Path, Date) ->
+  {ok, Iterator} = pulsedb_iterator:open(Path, [{date,Date}]),
+  events(Iterator).
+
+
 
 % %% @doc Just read all events from pulsedb
 % -spec events(pulsedb()|iterator()) -> list(row()).
@@ -78,22 +84,17 @@ append(Event, Pulsedb) ->
 %   {ok, Iterator} = init_reader(Stockdb, []),
 %   events(Iterator);
 
-% events(Iterator) ->
-%   pulsedb_iterator:all_events(Iterator).
+events(Iterator) ->
+  pulsedb_iterator:all_events(Iterator).
 
-% %% @doc Init iterator over opened pulsedb
-% % Options: 
-% %    {range, Start, End}
-% %    {filter, FilterFun, FilterArgs}
-% % FilterFun is function in pulsedb_filters
-% -spec init_reader(pulsedb(), list(reader_option())) -> {ok, iterator()} | {error, Reason::term()}.
-% init_reader(#dbstate{} = Pulsedb, Filters) ->
-%   case pulsedb_iterator:init(Pulsedb) of
-%     {ok, Iterator} ->
-%       init_reader(Iterator, Filters);
-%     {error, _} = Error ->
-%       Error
-%   end;
+%% @doc Init iterator over opened pulsedb
+% Options: 
+%    {range, Start, End}
+%    {filter, FilterFun, FilterArgs}
+% FilterFun is function in pulsedb_filters
+% -spec init_reader(file:path(), list(reader_option())) -> {ok, iterator()} | {error, Reason::term()}.
+% init_reader(Path, Options) ->
+%   (Path, Options).
 
 % init_reader(Iterator, Filters) ->
 %   {ok, apply_filters(Iterator, Filters)}.

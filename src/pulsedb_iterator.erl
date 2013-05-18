@@ -9,6 +9,10 @@
 -include("pulsedb.hrl").
 -include("../include/pulsedb.hrl").
 
+
+% Open sliding iterator
+-export([open/2]).
+
 % Create new iterator from pulsedb state
 -export([init/1]).
 
@@ -28,18 +32,33 @@
 -export([foldl/3, foldl/4]).
 
 -record(iterator, {
-    dbstate,
-    data_start,
-    position,
-    last_utc
-  }).
+  meta_path,
+  dbstate,
+  data_start,
+  position,
+  last_utc
+}).
 
 -record(filter, {
-    source,
-    ffun,
-    state,
-    buffer = []
-  }).
+  source,
+  ffun,
+  state,
+  buffer = []
+}).
+
+%% @doc Opens sliding iterator
+open(Meta, Options) ->
+  case proplists:get_value(date, Options) of
+    undefined -> 
+      {error, not_implemented};
+    Date ->
+      {{Y,M,D},_} = pulsedb_time:date_time(Date),
+      Path = lists:flatten(io_lib:format("~s/~4..0B/~2..0B/~2..0B.pulse", [Meta, Y,M,D])),
+      {ok, #dbstate{} = Reader} = pulsedb_reader:open(Path),
+      init(Reader)
+  end.
+
+
 
 %% @doc Initialize iterator. Position at the very beginning of data
 init(#dbstate{} = DBState) ->

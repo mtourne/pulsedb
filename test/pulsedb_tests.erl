@@ -12,6 +12,13 @@ write_test() ->
   {ok, P4} = pulsedb:append({row, 1368958968747, [40,27]}, P3),
   pulsedb:close(P4),
   {ok, _} = file:read_file_info("user15/eth0/2013/05/19.pulse"),
+
+  [{row, 1368872568737, [45,23]},
+  {row, 1368872568747, [40,27]}] =
+    pulsedb:events("user15/eth0", "2013-05-18"),
+
+  [{row, 1368958968747, [40,27]}] =
+    pulsedb:events("user15/eth0", "2013-05-19"),
   ok.
 
 

@@ -32,8 +32,14 @@ timestamp({Megaseconds, Seconds, Microseconds}) ->
   (Megaseconds*1000000 + Seconds)*1000 + Microseconds div 1000.
 
 
-date_time(Timestamp) ->
+date_time(Day) when length(Day) == 10 ->
+  [Y,M,D] = string:tokens(Day, "-"),
+  {{to_i(Y),to_i(M),to_i(D)},{0,0,0}};
+
+date_time(Timestamp) when is_number(Timestamp) ->
   GregSeconds_Zero = calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
   GregSeconds = GregSeconds_Zero + Timestamp div 1000,
   calendar:gregorian_seconds_to_datetime(GregSeconds).
 
+
+to_i(L) -> list_to_integer(L).
