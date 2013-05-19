@@ -8,9 +8,10 @@ open(Path) ->
 
 append({row,TS,Values} = Row, #dbstate{meta_path = Meta, current_day = undefined}) ->
   MetaFile = filename:join(Meta, ".pulseinfo"),
+  ok = filelib:ensure_dir(MetaFile),
   case file:read_file_info(MetaFile) of
     {ok, _} -> ok;
-    _ -> file:write_file(MetaFile, "pulsedb\n")
+    _ -> ok = file:write_file(MetaFile, "pulsedb\n")
   end,
   {{Y,M,D} = Day,_} = pulsedb_time:date_time(TS),
   Path = lists:flatten(io_lib:format("~s/~4..0B/~2..0B/~2..0B.pulse", [Meta, Y,M,D])),
