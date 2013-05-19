@@ -30,7 +30,7 @@
 % -export([write_events/2]).
 
 %% Reading existing data
--export([events/2]).
+-export([events/2, event_columns/2]).
 % open_read/1, 
 
 
@@ -70,11 +70,27 @@ append(Event, Pulsedb) ->
 %   pulsedb_reader:file_info(Pulsedb).
 
 
-%% @doc Get all events
+%% @doc Get all events as rows
 -spec events(file:path(), date()) -> list(row()).
 events(Path, Date) ->
   {ok, Iterator} = pulsedb_iterator:open(Path, [{date,Date}]),
   events(Iterator).
+
+
+%% @doc Get all events as columns for graphic library
+-spec event_columns(file:path(), date()) -> [{Name::binary(), [{timestamp(),value()}] }].
+event_columns(Path, Date) ->
+  {{Y,M,D},_} = pulsedb_time:date_time(Date),
+  RealPath = lists:flatten(io_lib:format("~s/~4..0B/~2..0B/~2..0B.pulse", [Path, Y,M,D])),
+  transpose(RealPath, events(Path, Date)).
+
+transpose(_Path, []) -> [];
+transpose(Path, [{row,_,Values}|_] = Rows) ->
+  Info = pulsedb_reader:file_info(Path),
+  Indexes = lists:seq(1,length(Values)),
+  Columns = proplists:get_value(columns, Info, Indexes),
+  [ {lists:nth(I,Columns), [{TS,lists:nth(I,Vals)} || {row,TS,Vals} <- Rows] } || I <- Indexes].
+
 
 
 

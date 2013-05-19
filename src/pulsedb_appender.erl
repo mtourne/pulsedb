@@ -62,7 +62,8 @@ create_new_db(Path, Opts) ->
     version = ?PULSEDB_VERSION,
     sync = not lists:member(nosync, Opts),
     path = Path,
-    chunk_size = proplists:get_value(chunk_size, Opts, 5*60)
+    chunk_size = proplists:get_value(chunk_size, Opts, 5*60),
+    columns = proplists:get_value(columns, Opts)
   },
 
   {ok, ChunkMapOffset} = write_header(File, State),
@@ -93,6 +94,9 @@ valid_values([]) -> true;
 valid_values(_) -> false.
 
 
+append({row, TS, [{_,_}|_] = Values}, #dbstate{} = State) ->
+  append({row, TS, [V || {_,V} <- Values]}, State);
+
 append(_Event, #dbstate{mode = Mode}) when Mode =/= append ->
   {error, reopen_in_append_mode};
 
@@ -113,8 +117,11 @@ append({row, TS, _Values} = Event, #dbstate{next_chunk_time = NCT, file = File, 
   end.
 
 
-write_header(File, #dbstate{chunk_size = CS, version = Version}) ->
-  Opts = [{chunk_size,CS},{version,Version}],
+write_header(File, #dbstate{chunk_size = CS, version = Version, columns = Columns}) ->
+  Opts = [{chunk_size,CS},{version,Version}] ++ case Columns of
+    undefined -> [];
+    _ -> [{columns, Columns}]
+  end,
   {ok, 0} = file:position(File, 0),
   ok = file:write(File, <<"#!/usr/bin/env pulsedb\n">>),
   lists:foreach(fun

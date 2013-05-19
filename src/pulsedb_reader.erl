@@ -59,7 +59,8 @@ open_existing_db(Path, Modes) ->
     chunk_size = ChunkSize,
     file = File,
     path = Path,
-    chunk_map_offset = ChunkMapOffset
+    chunk_map_offset = ChunkMapOffset,
+    columns = proplists:get_value(columns, SavedDBOpts)
   },
 
   State2 = read_chunk_map(State0),
@@ -90,11 +91,14 @@ buffer_data(#dbstate{file = File, chunk_map_offset = ChunkMapOffset} = State) ->
 
 
 %% @doc return some file_info about opened pulsedb
-file_info(#dbstate{date = Date, path = Path}) ->
-  [{path, Path},{date, Date}];
+file_info(#dbstate{date = Date, path = Path, columns = Columns}) ->
+  [{path, Path},{date, Date}] ++ case Columns of
+    undefined -> [];
+    _ -> [{columns,Columns}]
+  end;
 
 file_info(FileName) ->
-  file_info(FileName, [path, date, version]).
+  file_info(FileName, [path, date, version, columns]).
 
 %% @doc read file info
 file_info(FileName, Fields) ->

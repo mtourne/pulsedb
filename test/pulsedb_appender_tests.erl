@@ -50,6 +50,20 @@ change_depth_test() ->
   ok.
 
 
+save_columns_info_test() ->
+  file:delete("test5.pulse"),
+  {ok, P1} = pulsedb_appender:open("test5.pulse", [{columns, [<<"input">>,<<"output">>]}]),
+  {ok, P2} = pulsedb_appender:append({row, 1368872568737, [45,23]}, P1),
+  pulsedb_appender:close(P2),
+
+  Info = pulsedb_reader:file_info(P2),
+  [<<"input">>,<<"output">>] = proplists:get_value(columns, Info),
+
+  Info1 = pulsedb_reader:file_info("test5.pulse"),
+  [<<"input">>,<<"output">>] = proplists:get_value(columns, Info1),
+  ok.
+
+
 
 
 % -import(pulsedb_test_helper, [tempfile/1, tempdir/0, fixturefile/1, ensure_states_equal/2, write_events_to_file/2, append_events_to_file/2, ensure_packets_equal/2, chunk_content/1]).

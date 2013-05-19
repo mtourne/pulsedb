@@ -160,8 +160,15 @@ format_header_value(date, {Y, M, D}) ->
 format_header_value(stock, Stock) ->
   erlang:atom_to_list(Stock);
 
+format_header_value(columns, Columns) ->
+  bin_join(Columns,",");
+
 format_header_value(_, Value) ->
   io_lib:print(Value).
+
+bin_join([A], _) -> [A];
+bin_join([H|T], S) -> [H,S|bin_join(T,S)];
+bin_join([], _) -> [].
 
 
 %% @doc deserialize header value, used when parsing header
@@ -176,6 +183,9 @@ parse_header_value(chunk_size, Value) ->
 
 parse_header_value(version, Value) ->
   erlang:list_to_integer(Value);
+
+parse_header_value(columns, Value) ->
+  [list_to_binary(S) || S <- string:tokens(Value, ",")];
 
 parse_header_value(have_candle, "true") ->
   true;
