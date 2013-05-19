@@ -50,7 +50,10 @@ write_events(Path, Events, Options) ->
 %% rows
 create_new_db(Path, Opts) ->
   filelib:ensure_dir(Path),
-  {ok, File} = file:open(Path, [binary,write,exclusive,raw]),
+  {ok, File} = case file:open(Path, [binary,write,exclusive,raw]) of
+    {ok, File_} -> {ok, File_};
+    {error, Reason} -> error({pulsedb,{failed_to_create,Path,Reason}})
+  end,
   {ok, 0} = file:position(File, bof),
   ok = file:truncate(File),
 
