@@ -54,8 +54,10 @@ open(Meta, Options) ->
     Date ->
       {{Y,M,D},_} = pulsedb_time:date_time(Date),
       Path = lists:flatten(io_lib:format("~s/~4..0B/~2..0B/~2..0B.pulse", [Meta, Y,M,D])),
-      {ok, #dbstate{} = Reader} = pulsedb_reader:open(Path),
-      init(Reader)
+      case pulsedb_reader:open(Path) of
+        {ok, #dbstate{} = Reader} -> init(Reader);
+        {error, Reason} -> {error, Reason}
+      end
   end.
 
 

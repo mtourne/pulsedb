@@ -73,8 +73,10 @@ append(Event, Pulsedb) ->
 %% @doc Get all events as rows
 -spec events(file:path(), date()) -> list(row()).
 events(Path, Date) ->
-  {ok, Iterator} = pulsedb_iterator:open(Path, [{date,Date}]),
-  events(Iterator).
+  case pulsedb_iterator:open(Path, [{date,Date}]) of
+    {ok, Iterator} -> events(Iterator);
+    {error,Reason} -> []
+  end.
 
 
 %% @doc Get all events as columns for graphic library

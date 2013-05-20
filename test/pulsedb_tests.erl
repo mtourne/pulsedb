@@ -43,3 +43,7 @@ write2_test() ->
 
 
 
+nofile_test() ->
+  [] = pulsedb:events("user5/eth1", "2013-05-19"),
+  [] = pulsedb:event_columns("user5/eth1", "2013-05-19"),
+  ok.
