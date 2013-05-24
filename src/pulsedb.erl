@@ -30,7 +30,7 @@
 % -export([write_events/2]).
 
 %% Reading existing data
--export([events/2, event_columns/2]).
+-export([events/2, event_columns/2, info/1, info/2]).
 % open_read/1, 
 
 
@@ -68,6 +68,13 @@ append(Event, Pulsedb) ->
 % -spec info(pulsedb()) -> [{Key::atom(), Value::term()}].
 % info(Pulsedb) ->
 %   pulsedb_reader:file_info(Pulsedb).
+
+
+info(Path) ->
+  pulsedb_reader:file_info(Path).
+
+info(Path, Options) ->
+  pulsedb_reader:file_info(Path, Options).
 
 
 %% @doc Get all events as rows
