@@ -74,7 +74,11 @@ info(Path) ->
   pulsedb_reader:file_info(Path).
 
 info(Path, Options) ->
-  pulsedb_reader:file_info(Path, Options).
+  case lists:keytake(date, 1, Options) of
+    {value, {date, Date}, []} -> pulsedb_reader:file_info(real_path(Path,Date));
+    {value, {date, Date}, Opts1} -> pulsedb_reader:file_info(real_path(Path,Date), Opts1);
+    false -> pulsedb_reader:file_info(Path, Options)
+  end.
 
 
 %% @doc Get all events as rows
@@ -89,9 +93,11 @@ events(Path, Date) ->
 %% @doc Get all events as columns for graphic library
 -spec event_columns(file:path(), date()) -> [{Name::binary(), [{timestamp(),value()}] }].
 event_columns(Path, Date) ->
+  transpose(real_path(Path, Date), events(Path, Date)).
+
+real_path(Path, Date) ->
   {{Y,M,D},_} = pulsedb_time:date_time(Date),
-  RealPath = lists:flatten(io_lib:format("~s/~4..0B/~2..0B/~2..0B.pulse", [Path, Y,M,D])),
-  transpose(RealPath, events(Path, Date)).
+  lists:flatten(io_lib:format("~s/~4..0B/~2..0B/~2..0B.pulse", [Path, Y,M,D])).
 
 transpose(_Path, []) -> [];
 transpose(Path, [{row,_,Values}|_] = Rows) ->
