@@ -1,3 +1,4 @@
+%%% @copyright 2012-2013 Max Lapshin <max@maxidoors.ru>
 %%% @doc pulsedb_format: module that codes and decodes 
 %%% actual data to/from binary representation.
 %%% Format version: 2
@@ -7,6 +8,7 @@
 
 -module(pulsedb_format).
 -author({"Danil Zagoskin", 'z@gosk.in'}).
+-author({"Max Lapshin", 'max@maxidoors.ru'}).
 
 -include_lib("eunit/include/eunit.hrl").
 -include("../include/pulsedb.hrl").
@@ -21,14 +23,14 @@
 -export([get_timestamp/1]).
 
 
-init_nif() ->
-  Path = filename:dirname(code:which(?MODULE)) ++ "/../priv",
-  Load = erlang:load_nif(Path ++ "/pulsedb_format", 0),
-  case Load of
-    ok -> ok;
-    {error, {Reason,Text}} -> io:format("Load pulsedb_format failed. ~p:~p~n", [Reason, Text])
-  end,
-  ok.
+% init_nif() ->
+%   Path = filename:dirname(code:which(?MODULE)) ++ "/../priv",
+%   Load = erlang:load_nif(Path ++ "/pulsedb_format", 0),
+%   case Load of
+%     ok -> ok;
+%     {error, {Reason,Text}} -> io:format("Load pulsedb_format failed. ~p:~p~n", [Reason, Text])
+%   end,
+%   ok.
 
 %% Utility: lists module does not have this
 nested_foldl(Fun, Acc0, List) when is_list(List) ->

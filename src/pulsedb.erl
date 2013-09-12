@@ -14,9 +14,9 @@
 -type timestamp() :: non_neg_integer().
 -type date() :: string().
 
--type datetime_ms() :: {calendar:date(), time_ms()}.
--type time_ms() :: {calendar:hour(), calendar:minute(), calendar:second(), millisecond()}.
--type millisecond() :: 0..999.
+% -type datetime_ms() :: {calendar:date(), time_ms()}.
+% -type time_ms() :: {calendar:hour(), calendar:minute(), calendar:second(), millisecond()}.
+% -type millisecond() :: 0..999.
 
 
 -type row() :: {row, Timestamp::timestamp(), [value()]}.
@@ -86,7 +86,7 @@ info(Path, Options) ->
 events(Path, Date) ->
   case pulsedb_iterator:open(Path, [{date,Date}]) of
     {ok, Iterator} -> events(Iterator);
-    {error,Reason} -> []
+    {error,_Reason} -> []
   end.
 
 
