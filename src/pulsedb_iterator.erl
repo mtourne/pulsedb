@@ -7,7 +7,6 @@
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("pulsedb.hrl").
--include("../include/pulsedb.hrl").
 
 
 % Open sliding iterator

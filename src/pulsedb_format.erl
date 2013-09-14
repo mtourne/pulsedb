@@ -11,7 +11,6 @@
 -author({"Max Lapshin", 'max@maxidoors.ru'}).
 
 -include_lib("eunit/include/eunit.hrl").
--include("../include/pulsedb.hrl").
 
 % -on_load(init_nif/0).
 

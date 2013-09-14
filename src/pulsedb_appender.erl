@@ -1,7 +1,6 @@
 -module(pulsedb_appender).
 -author('Max Lapshin <max@maxidoors.ru>').
 
--include("../include/pulsedb.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("pulsedb.hrl").
 -include("log.hrl").

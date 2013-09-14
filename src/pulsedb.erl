@@ -4,7 +4,6 @@
 -module(pulsedb).
 -author({"Danil Zagoskin", 'z@gosk.in'}).
 -author("Max Lapshin <max@maxidoors.ru>").
--include("../include/pulsedb.hrl").
 -include("log.hrl").
 -include("pulsedb.hrl").
 
