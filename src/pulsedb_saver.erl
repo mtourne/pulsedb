@@ -1,7 +1,6 @@
 -module(pulsedb_saver).
 
 -include("pulsedb.hrl").
--include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 

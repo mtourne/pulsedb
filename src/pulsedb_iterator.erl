@@ -4,7 +4,6 @@
 -module(pulsedb_iterator).
 -author({"Danil Zagoskin", 'z@gosk.in'}).
 
--include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("pulsedb.hrl").
 

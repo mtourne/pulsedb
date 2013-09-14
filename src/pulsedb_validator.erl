@@ -1,6 +1,5 @@
 -module(pulsedb_validator).
 -include("pulsedb.hrl").
--include("log.hrl").
 -include_lib("kernel/include/file.hrl").
 -include_lib("eunit/include/eunit.hrl").
 

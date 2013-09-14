@@ -3,7 +3,6 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include("pulsedb.hrl").
--include("log.hrl").
 
 
 -export([open/1, open/2, append/2, close/1]).
