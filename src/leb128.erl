@@ -1,6 +1,8 @@
+%%% @copyright Max Lapshin <max@maxidoors.ru>
 %%% @doc LEB128 (http://en.wikipedia.org/wiki/LEB128) realization
-%%% Only unsigned integers re supported ATM
-
+%%%
+%%% MIT license
+%%%
 -module(leb128).
 -author({"Danil Zagoskin", 'z@gosk.in'}).
 

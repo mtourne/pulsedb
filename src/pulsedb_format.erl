@@ -1,4 +1,7 @@
 -module(pulsedb_format).
+-author('Max Lapshin <max@maxidoors.ru>').
+
+
 
 -include("pulsedb.hrl").
 -export([decode_config/1, encode_config/1]).
