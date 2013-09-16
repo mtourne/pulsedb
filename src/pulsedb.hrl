@@ -10,12 +10,27 @@
 
 -type source() :: #source{}.
 
+
+-record(index_block, {
+  utc1 :: utc(),
+  utc2 :: utc(),
+  offset :: non_neg_integer(),
+  size :: non_neg_integer()
+}).
+
+-type index_block() :: #index_block{}.
+
+
+
 -record(db, {
   path :: file:filename(),
   config_fd :: file:fd(),
   data_fd :: file:fd(),
   index_fd :: file:fd(),
-  sources = [] :: [source()]
+  mode :: read | append,
+  date :: calendar:date() | undefined,
+  sources = [] :: [source()],
+  index = [] :: [{source_name(), index_block()}]
 }).
 
 
@@ -32,3 +47,5 @@
 }).
 
 -type tick() :: #tick{}.
+
+

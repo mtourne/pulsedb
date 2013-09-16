@@ -6,6 +6,7 @@
 -include("pulsedb.hrl").
 -export([decode_config/1, encode_config/1]).
 -export([decode_data/2, encode_data/2]).
+-export([decode_index/1, encode_index/1]).
 
 
 -define(CONFIG_SOURCE, 1).
@@ -113,7 +114,19 @@ decode_delta_ticks(#tick{name = Name, utc = UTC0, value = Values0} = _Base, Delt
 
 
 
+-spec encode_index(index_block()) -> iodata().
 
+encode_index(#index_block{utc1 = UTC1, utc2 = UTC2, offset = Offset, size = Size}) when UTC2 - UTC1 < 16#ffff andalso Size < 16#ffff ->
+  <<UTC1:32, (UTC2-UTC1):16, Offset:64, Size:16>>.
+
+
+-spec decode_index(binary()) -> [index_block()].
+
+decode_index(<<UTC1:32, UTC2:16, Offset:64, Size:16, Rest/binary>>) ->
+  [#index_block{utc1 = UTC1, utc2 = UTC1 + UTC2, offset = Offset, size = Size}|decode_index(Rest)];
+
+decode_index(<<>>) ->
+  [].
 
 
 
