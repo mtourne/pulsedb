@@ -9,8 +9,11 @@ clean:
 	@./rebar clean
 	@rm -f erl_crash.dump
 
+ct: test
+
 test:
-	@./rebar eunit
+	mkdir -p logs
+	ct_run -pa ebin -logdir logs/ -dir test/
 
 .PHONY: test
 

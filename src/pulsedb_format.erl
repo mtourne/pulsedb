@@ -1,207 +1,124 @@
-%%% @copyright 2012-2013 Max Lapshin <max@maxidoors.ru>
-%%% @doc pulsedb_format: module that codes and decodes 
-%%% actual data to/from binary representation.
-%%% Format version: 2
-%%% Here "changed" flags for delta fields are aggregated at
-%%% packet start to improve code/decode performance by
-%%% byte-aligning LEB128 parts
-
 -module(pulsedb_format).
--author({"Danil Zagoskin", 'z@gosk.in'}).
--author({"Max Lapshin", 'max@maxidoors.ru'}).
 
--include_lib("eunit/include/eunit.hrl").
-
-% -on_load(init_nif/0).
-
--export([encode_full_row/2, decode_full_row/1]).
--export([encode_delta_row/2, decode_delta_row/2]).
--export([format_header_value/2, parse_header_value/2]).
-
--export([decode_packet/2]).
--export([get_timestamp/1]).
+-include("pulsedb.hrl").
+-export([decode_config/1, encode_config/1]).
+-export([decode_data/2, encode_data/2]).
 
 
-% init_nif() ->
-%   Path = filename:dirname(code:which(?MODULE)) ++ "/../priv",
-%   Load = erlang:load_nif(Path ++ "/pulsedb_format", 0),
-%   case Load of
-%     ok -> ok;
-%     {error, {Reason,Text}} -> io:format("Load pulsedb_format failed. ~p:~p~n", [Reason, Text])
-%   end,
-%   ok.
-
-%% Utility: lists module does not have this
-nested_foldl(Fun, Acc0, List) when is_list(List) ->
-  lists:foldl(fun(E, Acc) -> nested_foldl(Fun, Acc, E) end, Acc0, List);
-nested_foldl(Fun, Acc, Element) ->
-  Fun(Element, Acc).
+-define(CONFIG_SOURCE, 1).
+-define(DATA_TICKS, 2).
 
 
-%% @doc Encode full MD packet with given timestamp and (nested) bid/ask list
--spec encode_full_row(Timestamp::integer(), Values::[Value::integer()]) -> iolist().
-encode_full_row(Timestamp, Values) when is_integer(Timestamp) andalso is_list(Values) ->
-  append_full_values(<<0:1, 0:1, (length(Values)):8, Timestamp:54/integer>>, Values).
+-spec decode_config(binary()) -> [source()].
 
-append_full_values(Bin, []) -> Bin;
-append_full_values(Bin, [Value|Values]) ->
-  append_full_values(<<Bin/binary, Value:32/signed-integer>>, Values).
+decode_config(Bin) when is_binary(Bin) ->
+  decode_config(Bin, 0).
+
+decode_config(<<?CONFIG_SOURCE, Length:16, Source:Length/binary, Rest/binary>>, Index) ->
+  <<L:16, Name:L/binary, Count, Config/binary>> = Source,
+  Columns = [binary_to_atom(Column,latin1) || <<C, Column:C/binary>> <= Config],
+  Count = length(Columns),
+  [#source{source_id = Index, name = Name, columns = Columns}|decode_config(Rest, Index + 1)];
+
+decode_config(<<>>, _) ->
+  [].
 
 
 
+-spec encode_config(source()|[source()]) -> binary().
+encode_config(#source{name = Name, columns = Columns}) ->
+  L = size(Name),
+  Count = length(Columns),
+  Config = [begin
+    Col = atom_to_binary(Column,latin1),
+    <<(size(Col)), Col/binary>>
+  end || Column <- Columns],
+  Conf = [<<L:16, Name:L/binary, Count>>,Config],
+  Size = iolist_size(Conf),
+  iolist_to_binary([<<?CONFIG_SOURCE, Size:16>>, Conf]);
 
--spec decode_full_row(Buffer::binary()) ->
-  {Timestamp::integer(), Values::[Value::integer()], ByteCount::integer()}.
-decode_full_row(<<0:1, 0:1, Depth:8, Timestamp:54/integer, Tail/binary>>) ->
-  Size = Depth*4,
-  <<Vals:Size/binary, _/binary>> = Tail,
-  Values = [V || <<V:32/signed-integer>> <= Vals],
-  Depth == length(Values) orelse error({invalid_count_of_values,Depth,length(Values)}),
-  {Timestamp, Values, 8+Size}.
-
-
-
-%% @doc Encode delta MD packet with given timestamp delta and (nested) bid/ask delta list
--spec encode_delta_row(TimeDelta::integer(), ValueDelta::[Delta::integer()]) -> iolist().
-encode_delta_row(TimeDelta, ValueDelta) when TimeDelta >= 0 ->
-  % Bit mask length is 4*Depth, so wee can align it to 4 bits, leaving extra space for future
-  Header = <<0:1, 1:1>>,
-  TimeBin = leb128:encode(TimeDelta),
-
-  {HBitMask, DataBin} = nested_foldl(fun(Value, {_Bitmask, _DataBin} = AccIn) ->
-        add_delta_field(Value, AccIn)
-    end, {Header, <<>>}, ValueDelta),
-  HBitMaskPadded = pad_to_octets(HBitMask),
-  <<HBitMaskPadded/binary, TimeBin/binary, DataBin/binary>>.
-
-
-%% Utility: append bit to bitmask and (if not zero) value to data accumulator
-add_delta_field(0, {BitMask, DataBin}) ->
-  % Zero value. Append 0 to bitmask
-  {<<BitMask/bitstring, 0:1>>, DataBin};
-
-add_delta_field(Value, {BitMask, DataBin}) ->
-  % non-zero value. Append 1 to bitmask and binary value to data
-  ValueBin = leb128:encode_signed(Value),
-  {<<BitMask/bitstring, 1:1>>, <<DataBin/binary, ValueBin/binary>>}.
-
-pad_to_octets(BS) ->
-  PadSize = erlang:byte_size(BS)*8 - erlang:bit_size(BS),
-  <<BS/bitstring, 0:PadSize>>.
-
-
--spec decode_delta_row(Buffer::binary(), Depth::integer()) ->
-  {TimeDelta::integer(), Values::[Value::integer()], ByteCount::integer()}.
-decode_delta_row(<<0:1, 1:1, _/bitstring>> = Bin, Depth) ->
-  BMPadSize = (8 - ((Depth + 2) rem 8)) rem 8,
-  <<0:1, 1:1, BitMask:Depth/bitstring, _:BMPadSize/bitstring, DataTail/binary>> = Bin,
-
-  {TimeDelta, Values_Tail} = leb128:decode(DataTail),
-  {Values, Tail} = decode_deltas(Values_Tail, BitMask),
-  ByteCount = erlang:byte_size(Bin) - erlang:byte_size(Tail),
-  {TimeDelta, Values, ByteCount}.
-
-decode_deltas(DataBin, BitMask) ->
-  {RevPVs, Tail} = lists:foldl(fun(F, {Acc, PVData}) ->
-        {P, Data} = get_delta_field(F, PVData),
-        {[P | Acc], Data}
-    end, {[], DataBin}, [F || <<F:1>> <= BitMask]),
-  {lists:reverse(RevPVs), Tail}.
-
-get_delta_field(0, Data) ->
-  {0, Data};
-get_delta_field(1, Data) ->
-  leb128:decode_signed(Data).
+encode_config([#source{}|_] = Sources) ->
+  iolist_to_binary([encode_config(Source) || Source <- Sources]).
 
 
 
 
-%% @doc Main decoding function: takes binary and depth, returns packet type, body and size
--spec decode_packet(Bin::binary(), PrevRow::term()) ->
-  {ok, Packet::term(), Size::integer()} | {error, Reason::term()}.
-decode_packet(Bin, PrevRow) ->
-  try
-    do_decode_packet(Bin, PrevRow)
-  catch
-    Type:Message ->
-      {error, {Type, Message, erlang:get_stacktrace()}}
-  end.
-
-do_decode_packet(Bin, PrevRow) ->
-  do_decode_packet_erl(Bin, PrevRow).
-
-do_decode_packet_erl(<<0:1, 0:1, _/bitstring>> = Bin, _PrevRow) ->
-  {Timestamp, Values, Size} = decode_full_row(Bin),
-  {ok, {row, Timestamp, Values}, Size};
-
-do_decode_packet_erl(<<0:1, 1:1, _/bitstring>> = Bin, {row,_,PrevValues}=PrevRow) ->
-  {TimeDelta, Values, Size} = decode_delta_row(Bin, length(PrevValues)),
-  Result = apply_delta(PrevRow, {row, TimeDelta, Values}),
-  {ok, Result, Size}.
 
 
 
-%% Utility: apply delta md to previous md (actually, just sum field-by-field)
-apply_delta({row, TS1, Values1}, {row, TS2, Values2}) ->
-  {row, TS1 + TS2, lists:zipwith(fun(V1,V2) -> V1+V2 end,Values1, Values2)}.
 
-% %% Utility: get delta md where first argument is old value, second is new one
-% compute_delta({row, TS1, Values1}, {row, TS2, Values2}) ->
-%   {row, TS2 - TS1, lists:zipwith(fun(V1,V2) -> V2-V1 end,Values1, Values2)}.
+-spec encode_data(source(), [tick()]) -> iodata().
+encode_data(#source{source_id = Id, columns = Columns}, Ticks0) ->
+  Ticks1 = [
+    T#tick{value = [proplists:get_value(Col,Proplist,0) || Col <- Columns]} || 
+    #tick{value = Proplist} = T <-
+    Ticks0
+  ],
+  [#tick{} = Tick|Ticks] = Ticks1,
+  {Delta, _} = lists:mapfoldl(fun(Tick1,Tick0) ->
+    Row = encode_delta_tick(Tick0, Tick1),
+    {Row, Tick1}
+  end, Tick, Ticks),
+  Block = [leb128:encode(Id), encode_full_tick(Tick), Delta],
+  [<<?DATA_TICKS, (iolist_size(Block)):16>>, Block].
 
+encode_full_tick(#tick{utc = UTC, value = Values}) ->
+  [<<UTC:32>>, [leb128:encode(Val) || Val <- Values]].
 
-get_timestamp(<<0:1, 0:1, _:8, Timestamp:54/integer, _/binary>>) ->
-  Timestamp.
-
-
-%% @doc serialize header value, used when writing header
-format_header_value(date, {Y, M, D}) ->
-  io_lib:format("~4..0B-~2..0B-~2..0B", [Y, M, D]);
-
-format_header_value(stock, Stock) ->
-  erlang:atom_to_list(Stock);
-
-format_header_value(columns, Columns) ->
-  bin_join(Columns,",");
-
-format_header_value(_, Value) ->
-  io_lib:print(Value).
-
-bin_join([A], _) -> [A];
-bin_join([H|T], S) -> [H,S|bin_join(T,S)];
-bin_join([], _) -> [].
+encode_delta_tick(#tick{utc = UTC0, value = Values0} = _Base, #tick{utc = UTC, value = Values}) ->
+  [leb128:encode(UTC - UTC0), lists:zipwith(fun(Val0,Val) ->
+    leb128:encode_signed(Val - Val0)
+  end, Values0, Values)].
 
 
-%% @doc deserialize header value, used when parsing header
-parse_header_value(depth, Value) ->
-  erlang:list_to_integer(Value);
 
-parse_header_value(scale, Value) ->
-  erlang:list_to_integer(Value);
 
-parse_header_value(chunk_size, Value) ->
-  erlang:list_to_integer(Value);
 
-parse_header_value(version, Value) ->
-  erlang:list_to_integer(Value);
 
-parse_header_value(columns, Value) ->
-  [list_to_binary(S) || S <- string:tokens(Value, ",")];
+-spec decode_data([source()], binary()) -> [tick()].
+decode_data(Sources, <<?DATA_TICKS, Length:16, Bin:Length/binary>>) ->
+  {Id, Rows} = leb128:decode(Bin),
+  #source{} = Source = lists:keyfind(Id, #source.source_id, Sources),
+  {Tick, DeltaRows} = decode_full_tick(Source, Rows),
+  {Ticks, <<>>} = decode_delta_ticks(Tick, DeltaRows),
+  [Tick|Ticks].
 
-parse_header_value(have_candle, "true") ->
-  true;
+decode_full_tick(#source{name = Name, columns = Columns}, <<UTC:32, Rows/binary>>) when is_binary(Rows) ->
+  {Values, Rest} = lists:mapfoldl(fun(Column, Bin1) ->
+    {Val, Bin2} = leb128:decode(Bin1),
+    {{Column,Val}, Bin2}
+  end, Rows, Columns),
+  {#tick{name = Name, utc = UTC, value = Values}, Rest}.
 
-parse_header_value(have_candle, "false") ->
-  false;
+decode_delta_ticks(#tick{} = _Base, <<>> = Bin) ->
+  {[], Bin};
 
-parse_header_value(date, DateStr) ->
-  [YS, MS, DS] = string:tokens(DateStr, "/-."),
-  { erlang:list_to_integer(YS),
-    erlang:list_to_integer(MS),
-    erlang:list_to_integer(DS)};
+decode_delta_ticks(#tick{name = Name, utc = UTC0, value = Values0} = _Base, DeltaRows) ->
+  {UTC, Bin1} = leb128:decode(DeltaRows),
 
-parse_header_value(stock, StockStr) ->
-  erlang:list_to_atom(StockStr);
+  {Values, Bin4} = lists:mapfoldl(fun({Column,Value0}, Bin2) ->
+    {Val, Bin3} = leb128:decode_signed(Bin2),
+    {{Column,Value0 + Val}, Bin3}
+  end, Bin1, Values0),
 
-parse_header_value(_, Value) ->
-  Value.
+  Tick = #tick{name = Name, utc = UTC0 + UTC, value = Values},
+
+  {Ticks, Rest} = decode_delta_ticks(Tick, Bin4),
+
+  {[Tick|Ticks], Rest}.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
