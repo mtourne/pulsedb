@@ -24,12 +24,13 @@ config(_) ->
 
 
 data(_) ->
+  Source = #source{source_id = 1, name = <<"source1">>, columns = [input,output]},
+
   Ticks = [
     #tick{name = <<"source1">>, utc = 121, value = [{input,5},{output,0}]},
     #tick{name = <<"source1">>, utc = 122, value = [{input,10},{output,2}]},
     #tick{name = <<"source1">>, utc = 123, value = [{input,3},{output,6}]}
   ],
-  Source = #source{source_id = 1, name = <<"source1">>, columns = [input,output]},
 
   Bin = iolist_to_binary(pulsedb_format:encode_data(Source, Ticks)),
 

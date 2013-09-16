@@ -12,6 +12,7 @@
 
 
 -record(index_block, {
+  source_id :: non_neg_integer(),
   utc1 :: utc(),
   utc2 :: utc(),
   offset :: non_neg_integer(),

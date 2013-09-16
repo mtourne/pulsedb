@@ -69,7 +69,8 @@ open_existing_db(#db{mode = Mode, path = Path} = DB) ->
 
   {ok, ConfigFd} = file:open(ConfigPath, Opts),
 
-  Index = pulsedb_format:decode_index(read_file(IndexPath)),
+  RawIndex = pulsedb_format:decode_index(read_file(IndexPath)),
+  Index = unpack_index(Sources, RawIndex),
   {ok, IndexFd} = file:open(IndexPath, Opts),
   {ok, DataFd} = file:open(DataPath, Opts),
   DB#db{mode = Mode, path = Path, config_fd = ConfigFd, index_fd = IndexFd, data_fd = DataFd, sources = Sources, index = Index}.
@@ -89,8 +90,8 @@ append(Ticks, #db{config_fd = undefined} = DB) ->
 append([#tick{name = Name, value = Value}|_] = Ticks, #db{} = DB) ->
   validate_ticks(Ticks),
   {ok, DB1} = append_config_if_required(Name, [Column || {Column,_} <- Value], DB),
-  {ok, IndexInfo, DB2} = append_data(Ticks, DB1),
-  {ok, DB3} = append_index(Name, IndexInfo, DB2),
+  {ok, IndexBlock, DB2} = append_data(Ticks, DB1),
+  {ok, DB3} = append_index(Name, IndexBlock, DB2),
   {ok, DB3}.
 
 append_config_if_required(Name, Columns, #db{sources = Sources, config_fd = ConfigFd} = DB) ->
@@ -100,8 +101,8 @@ append_config_if_required(Name, Columns, #db{sources = Sources, config_fd = Conf
     false ->
       Source = #source{source_id = length(Sources), name = Name, columns = Columns},
       Bin = pulsedb_format:encode_config(Source),
-      file:write(ConfigFd, Bin),
-      file:sync(ConfigFd),
+      ok = file:write(ConfigFd, Bin),
+      ok = file:sync(ConfigFd),
       {ok, DB#db{sources = Sources ++ [Source]}}
   end.
 
@@ -110,19 +111,20 @@ append_data([#tick{name = Name}|_] = Ticks, #db{data_fd = DataFd, sources = Sour
   UTC1 = (hd(Ticks))#tick.utc,
   UTC2 = (lists:last(Ticks))#tick.utc,
   {ok, Offset} = file:position(DataFd, cur),
-  Bin = pulsedb_format:encode_data(lists:keyfind(Name,#source.name,Sources), Ticks),
-  file:write(DataFd, Bin),
-  file:sync(DataFd),
-  {ok, #index_block{utc1 = UTC1,utc2 = UTC2,offset = Offset,size = iolist_size(Bin)}, DB1}.
+  #source{source_id = SourceId} = Source = lists:keyfind(Name,#source.name,Sources),
+  Bin = pulsedb_format:encode_data(Source, Ticks),
+  ok = file:write(DataFd, Bin),
+  ok = file:sync(DataFd),
+  {ok, #index_block{source_id = SourceId, utc1 = UTC1,utc2 = UTC2,offset = Offset,size = iolist_size(Bin)}, DB1}.
 
-append_index(Name, #index_block{} = Info, #db{index_fd = IndexFd, index = Index} = DB1) ->
-  file:write(IndexFd, pulsedb_format:encode_index(Info)),
-  file:sync(IndexFd),
+append_index(Name, #index_block{} = IndexBlock, #db{index_fd = IndexFd, index = Index} = DB1) ->
+  ok = file:write(IndexFd, pulsedb_format:encode_index(IndexBlock)),
+  ok = file:sync(IndexFd),
   Index1 = case lists:keyfind(Name, 1, Index) of
     false ->
-      [{Name,[Info]}|Index];
-    {Name, InfoList} ->
-      lists:keystore({Name,InfoList ++ Info}, 1, Index)
+      [{Name,[IndexBlock]}|Index];
+    {Name, IndexBlockList} ->
+      lists:keystore({Name,IndexBlockList ++ [IndexBlock]}, 1, Index)
   end,
   {ok, DB1#db{index = Index1}}.
 
@@ -162,6 +164,12 @@ read(Query, #db{index = Index, sources = Sources, data_fd = DataFd} = DB) ->
   end.
 
 
+
+unpack_index([], []) -> [];
+unpack_index(_, []) -> [];
+unpack_index([#source{source_id = Id, name = Name}|Sources], Index) ->
+  {SourceIndex, Rest} = lists:partition(fun(#index_block{source_id = I}) -> Id == I end, Index),
+  [{Name,SourceIndex}|unpack_index(Sources, Rest)].
 
 
 

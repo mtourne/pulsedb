@@ -82,7 +82,10 @@ encode_delta_tick(#tick{utc = UTC0, value = Values0} = _Base, #tick{utc = UTC, v
 -spec decode_data([source()], binary()) -> [tick()].
 decode_data(Sources, <<?DATA_TICKS, Length:16, Bin:Length/binary>>) ->
   {Id, Rows} = leb128:decode(Bin),
-  #source{} = Source = lists:keyfind(Id, #source.source_id, Sources),
+  #source{} = Source = case Sources of
+    #source{source_id = Id} -> Sources;
+    _ -> lists:keyfind(Id, #source.source_id, Sources)
+  end,
   {Tick, DeltaRows} = decode_full_tick(Source, Rows),
   {Ticks, <<>>} = decode_delta_ticks(Tick, DeltaRows),
   [Tick|Ticks].
@@ -116,14 +119,14 @@ decode_delta_ticks(#tick{name = Name, utc = UTC0, value = Values0} = _Base, Delt
 
 -spec encode_index(index_block()) -> iodata().
 
-encode_index(#index_block{utc1 = UTC1, utc2 = UTC2, offset = Offset, size = Size}) when UTC2 - UTC1 < 16#ffff andalso Size < 16#ffff ->
-  <<UTC1:32, (UTC2-UTC1):16, Offset:64, Size:16>>.
+encode_index(#index_block{source_id = SourceId, utc1 = UTC1, utc2 = UTC2, offset = Offset, size = Size}) when UTC2 - UTC1 < 16#ffff andalso Size < 16#ffff ->
+  <<SourceId:32, UTC1:32, (UTC2-UTC1):16, Offset:64, Size:16>>.
 
 
 -spec decode_index(binary()) -> [index_block()].
 
-decode_index(<<UTC1:32, UTC2:16, Offset:64, Size:16, Rest/binary>>) ->
-  [#index_block{utc1 = UTC1, utc2 = UTC1 + UTC2, offset = Offset, size = Size}|decode_index(Rest)];
+decode_index(<<SourceId:32, UTC1:32, UTC2:16, Offset:64, Size:16, Rest/binary>>) ->
+  [#index_block{source_id = SourceId, utc1 = UTC1, utc2 = UTC1 + UTC2, offset = Offset, size = Size}|decode_index(Rest)];
 
 decode_index(<<>>) ->
   [].
