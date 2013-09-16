@@ -25,13 +25,17 @@
 
 -record(db, {
   path :: file:filename(),
-  config_fd :: file:fd(),
-  data_fd :: file:fd(),
-  index_fd :: file:fd(),
-  mode :: read | append,
-  date :: calendar:date() | undefined,
-  sources = [] :: [source()],
-  index = [] :: [{source_name(), index_block()}]
+  sources :: [source()],
+  index :: [{source_name(), index_block()}],
+
+  config_fd_a :: file:fd(),
+  data_fd_a :: file:fd(),
+  index_fd_a :: file:fd(),
+
+  config_fd_r :: file:fd(),
+  data_fd_r :: file:fd(),
+  index_fd_r :: file:fd(),
+  date :: calendar:date() | undefined
 }).
 
 
