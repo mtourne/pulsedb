@@ -1,6 +1,23 @@
 -module(pulsedb_time).
 
--export([daystart/1, timestamp/1, date_time/1]).
+-export([daystart/1, date_time/1]).
+
+
+-export([parse/1]).
+
+
+to_i(L) when is_list(L) -> list_to_integer(L);
+to_i(Bin) when is_binary(Bin) -> binary_to_integer(Bin).
+
+parse(String) when is_list(String) ->
+  parse(iolist_to_binary(String));
+
+parse(<<Y:4/binary, "-", Mon:2/binary, "-", D:2/binary>>) ->
+  utc({{to_i(Y), to_i(Mon), to_i(D)}, {0,0,0}});
+
+parse(<<Y:4/binary, "-", Mon:2/binary, "-", D:2/binary, " ", H:2/binary, ":", Min:2/binary, ":", S:2/binary>>) ->
+  utc({{to_i(Y), to_i(Mon), to_i(D)}, {to_i(H),to_i(Min),to_i(S)}}).
+
 
 
 daystart(UTCms) when is_integer(UTCms) ->
@@ -11,25 +28,22 @@ daystart(UTCms) when is_integer(UTCms) ->
 
 
 
-% Convert seconds to milliseconds
-timestamp(UnixTime) when is_integer(UnixTime), UnixTime < 4000000000 ->
-  UnixTime * 1000;
+% Convert milliseconds to seconds
+utc(UnixTime) when is_integer(UnixTime), UnixTime > 4000000000 ->
+  UnixTime div 1000;
 
 % No convertion needed
-timestamp(UTC) when is_integer(UTC) ->
+utc(UTC) when is_integer(UTC) ->
   UTC;
 
 % Convert given {Date, Time} or {Megasec, Sec, Microsec} to millisecond timestamp
-timestamp({{_Y,_Mon,_D} = Day,{H,Min,S}}) ->
-  timestamp({Day, {H,Min,S, 0}});
-
-timestamp({{_Y,_Mon,_D} = Day,{H,Min,S, Milli}}) ->
+utc({{_Y,_Mon,_D} = Day,{H,Min,S}}) ->
   GregSeconds_Zero = calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
   GregSeconds_Now = calendar:datetime_to_gregorian_seconds({Day,{H,Min,S}}),
-  (GregSeconds_Now - GregSeconds_Zero)*1000 + Milli;
+  GregSeconds_Now - GregSeconds_Zero;
 
-timestamp({Megaseconds, Seconds, Microseconds}) ->
-  (Megaseconds*1000000 + Seconds)*1000 + Microseconds div 1000.
+utc({Megaseconds, Seconds, _Microseconds}) ->
+  Megaseconds*1000000 + Seconds.
 
 
 date_time(Day) when length(Day) == 10 ->
@@ -45,4 +59,3 @@ date_time(Timestamp) when is_number(Timestamp) ->
   calendar:gregorian_seconds_to_datetime(GregSeconds).
 
 
-to_i(L) -> list_to_integer(L).

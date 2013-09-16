@@ -124,7 +124,7 @@ append_index(Name, #index_block{} = IndexBlock, #db{index_fd = IndexFd, index = 
     false ->
       [{Name,[IndexBlock]}|Index];
     {Name, IndexBlockList} ->
-      lists:keystore({Name,IndexBlockList ++ [IndexBlock]}, 1, Index)
+      lists:keystore(Name, 1, Index, {Name,IndexBlockList ++ [IndexBlock]})
   end,
   {ok, DB1#db{index = Index1}}.
 
@@ -149,19 +149,34 @@ validate_ticks([Tick|_], Name, UTC) -> error({wrong_tick,Name,UTC,Tick}).
 read(Query, #db{config_fd = undefined} = DB) ->
   read(Query, open0(DB, read));
 
-read(Query, #db{index = Index, sources = Sources, data_fd = DataFd} = DB) ->
+read(Query0, #db{index = Index, sources = Sources, data_fd = DataFd} = DB) ->
+  Query = pulsedb:parse_query(Query0),
   {name, Name} = lists:keyfind(name, 1, Query),
   case lists:keyfind(Name, 1, Index) of
     false ->
       {ok, [], DB};
-    {Name,InfoBlocks} ->
+    {Name,IndexBlocks1} ->
+      IndexBlocks2 = filter_index_blocks(Query, IndexBlocks1),
       #source{} = Source = lists:keyfind(Name, #source.name, Sources),
       Ticks = lists:flatmap(fun(#index_block{offset = Offset, size = Size}) ->
         {ok, Bin} = file:pread(DataFd, Offset, Size),
         pulsedb_format:decode_data(Source, Bin)
-      end, InfoBlocks),
+      end, IndexBlocks2),
       {ok, Ticks, DB}
   end.
+
+
+
+filter_index_blocks([], Blocks) -> Blocks;
+filter_index_blocks(_, []) -> [];
+filter_index_blocks([{from,From}|Query], Blocks) ->
+  Blocks1 = lists:dropwhile(fun(#index_block{utc2 = UTC2}) -> UTC2 < From end, Blocks),
+  filter_index_blocks(Query, Blocks1);
+filter_index_blocks([{to,To}|Query], Blocks) ->
+  Blocks1 = lists:takewhile(fun(#index_block{utc1 = UTC1}) -> UTC1 =< To end, Blocks),
+  filter_index_blocks(Query, Blocks1);
+filter_index_blocks([_|Query], Blocks) ->
+  filter_index_blocks(Query, Blocks).
 
 
 
