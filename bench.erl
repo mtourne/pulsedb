@@ -8,7 +8,7 @@
 main([]) ->
   code:add_pathz("ebin"),
   os:cmd("rm -rf benchdb"),
-  SourceCount = 10,
+  SourceCount = 100,
   MinuteCount = 1440,
   T1 = erlang:now(),
   {ok, DB1} = pulsedb:open("benchdb"),
@@ -36,6 +36,7 @@ main([]) ->
   T5 = erlang:now(),
   Time2 = timer:now_diff(T5,T4),
   io:format("Extracted ~B ticks during ~B ms, ~B us per tick\n", [length(Ticks), Time2 div 1000, Time2 div length(Ticks)]),
+  os:cmd("rm -rf benchdb"),
   ok.
 
 write_minutes(_Sources, 0, DB) ->
