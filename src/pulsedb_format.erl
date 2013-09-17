@@ -4,6 +4,8 @@
 
 
 -include("pulsedb.hrl").
+-include("../include/pulsedb.hrl").
+
 -export([decode_config/1, encode_config/1]).
 -export([decode_data/2, encode_data/2]).
 -export([decode_index/1, encode_index/1]).

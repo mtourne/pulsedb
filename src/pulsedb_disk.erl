@@ -2,6 +2,7 @@
 -author('Max Lapshin <max@maxidoors.ru>').
 
 -include("pulsedb.hrl").
+-include("../include/pulsedb.hrl").
 
 
 -export([open/1, append/2, read/2, close/1]).

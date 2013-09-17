@@ -1,7 +1,7 @@
 -module(pulsedb_SUITE).
 -compile(export_all).
 
--include("../src/pulsedb.hrl").
+-include("../include/pulsedb.hrl").
 
 
 all() ->

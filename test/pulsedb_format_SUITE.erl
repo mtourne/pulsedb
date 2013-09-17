@@ -2,6 +2,7 @@
 -compile(export_all).
 
 -include("../src/pulsedb.hrl").
+-include("../include/pulsedb.hrl").
 
 all() ->
   [{group, format}].

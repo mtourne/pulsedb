@@ -41,14 +41,3 @@
 
 
 -type utc() :: non_neg_integer().
-
-
--record(tick, {
-  name :: source_name(),
-  utc :: utc(),
-  value :: [{column_name(),value()}]
-}).
-
--type tick() :: #tick{}.
-
-
