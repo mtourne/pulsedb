@@ -18,7 +18,8 @@ open(Path) ->
 read(Query, #db{} = DB) ->
   Query1 = parse_query(Query),
   RequiredDates = required_dates(Query1),
-  {ok, Ticks, DB1} = load_ticks(RequiredDates, Query1, DB),
+  {ok, DB0} = close(DB),
+  {ok, Ticks, DB1} = load_ticks(RequiredDates, Query1, DB0),
   Ticks1 = filter_ticks(Query1, Ticks),
   {ok, Ticks1, DB1}.
 

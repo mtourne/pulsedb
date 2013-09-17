@@ -38,7 +38,14 @@ append_and_read(_) ->
 
   Ticks3 = Ticks1++Ticks2,
   {ok, Ticks3, DB5} = pulsedb:read([{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-04"}], DB4),
+  pulsedb:close(DB5),
 
-  pulsedb:close(DB5).
+  os:cmd("rm -rf test/v1/pulse_rw/1970/01/01"),
+
+  {ok, R1} = pulsedb:open("test/v1/pulse_rw"),
+  {ok, Ticks2, R2} = pulsedb:read([{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-04"}], R1),
+  pulsedb:close(R2).
+
+
 
 
