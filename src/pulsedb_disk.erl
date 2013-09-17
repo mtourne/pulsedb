@@ -130,12 +130,12 @@ append_data([#tick{name = Name}|_] = Ticks, #db{data_fd = DataFd, sources = Sour
   #source{source_id = SourceId} = Source = lists:keyfind(Name,#source.name,Sources),
   Bin = pulsedb_format:encode_data(Source, Ticks),
   ok = file:write(DataFd, Bin),
-  ok = file:sync(DataFd),
+  % ok = file:sync(DataFd),
   {ok, #index_block{source_id = SourceId, utc1 = UTC1,utc2 = UTC2,offset = Offset,size = iolist_size(Bin)}, DB1}.
 
 append_index(Name, #index_block{} = IndexBlock, #db{index_fd = IndexFd, index = Index} = DB1) ->
   ok = file:write(IndexFd, pulsedb_format:encode_index(IndexBlock)),
-  ok = file:sync(IndexFd),
+  % ok = file:sync(IndexFd),
   Index1 = case lists:keyfind(Name, 1, Index) of
     false ->
       [{Name,[IndexBlock]}|Index];
