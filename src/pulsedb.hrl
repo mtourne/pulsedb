@@ -25,6 +25,7 @@
 
 -record(db, {
   path :: file:filename(),
+  date :: binary() | undefined,
   sources :: [source()],
   index :: [{source_name(), index_block()}],
 
@@ -34,8 +35,7 @@
 
   config_fd_r :: file:fd(),
   data_fd_r :: file:fd(),
-  index_fd_r :: file:fd(),
-  date :: calendar:date() | undefined
+  index_fd_r :: file:fd()
 }).
 
 

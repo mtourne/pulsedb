@@ -32,7 +32,7 @@ append_and_read(_) ->
   pulsedb_disk:close(DB3),
 
   {ok, ReadDB1} = pulsedb_disk:open("test/v1/append_and_read"),
-  {ok, Ticks1, ReadDB2} = pulsedb_disk:read([{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], ReadDB1),
+  {ok, Ticks1, ReadDB2} = pulsedb_disk:read([{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], ReadDB1#db{date = <<"1970/01/01">>}),
 
   pulsedb_disk:close(ReadDB2),
   ok.

@@ -3,11 +3,16 @@
 -export([daystart/1, date_time/1]).
 
 
--export([parse/1]).
+-export([parse/1, date_path/1]).
+
 
 
 to_i(L) when is_list(L) -> list_to_integer(L);
 to_i(Bin) when is_binary(Bin) -> binary_to_integer(Bin).
+
+
+parse(UTC) when is_integer(UTC) ->
+  UTC;
 
 parse(String) when is_list(String) ->
   parse(iolist_to_binary(String));
@@ -17,6 +22,16 @@ parse(<<Y:4/binary, "-", Mon:2/binary, "-", D:2/binary>>) ->
 
 parse(<<Y:4/binary, "-", Mon:2/binary, "-", D:2/binary, " ", H:2/binary, ":", Min:2/binary, ":", S:2/binary>>) ->
   utc({{to_i(Y), to_i(Mon), to_i(D)}, {to_i(H),to_i(Min),to_i(S)}}).
+
+
+
+date_path(UTC) when is_integer(UTC) ->
+  {Day,_} = date_time(UTC),
+  date_path(Day);
+
+date_path({Y,M,D}) ->
+  iolist_to_binary(io_lib:format("~4..0B/~2..0B/~2..0B", [Y,M,D])).
+
 
 
 
@@ -55,7 +70,7 @@ date_time({Y,M,D}) when is_integer(Y),is_integer(M),is_integer(D) ->
 
 date_time(Timestamp) when is_number(Timestamp) ->
   GregSeconds_Zero = calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
-  GregSeconds = GregSeconds_Zero + Timestamp div 1000,
+  GregSeconds = GregSeconds_Zero + Timestamp,
   calendar:gregorian_seconds_to_datetime(GregSeconds).
 
 

@@ -13,11 +13,16 @@ open(Path) ->
   {ok, #db{path = Path}}.
 
 
-open0(#db{config_fd_r = undefined} = DB, read) ->
-  open_existing_db(DB, read);
+open0(#db{path = Path, config_fd_r = undefined, date = Date} = DB, read) when Date =/= undefined  ->
+  case filelib:is_regular(filename:join([Path,Date,config_v1])) of
+    true ->
+      open_existing_db(DB, read);
+    false ->
+      DB
+  end;
 
-open0(#db{path = Path, config_fd_a = undefined} = DB, append) ->
-  case filelib:is_regular(filename:join(Path,config_v1)) of
+open0(#db{path = Path, config_fd_a = undefined, date = Date} = DB, append) when Date =/= undefined  ->
+  case filelib:is_regular(filename:join([Path,Date,config_v1])) of
     true ->
       open_existing_db(DB, append);
     false ->
@@ -26,10 +31,10 @@ open0(#db{path = Path, config_fd_a = undefined} = DB, append) ->
 
 
 
-create_new_db(#db{path = Path} = DB) ->
-  ConfigPath = filename:join(Path, config_v1),
-  IndexPath = filename:join(Path, index_v1),
-  DataPath = filename:join(Path, data_v1),
+create_new_db(#db{path = Path, date = Date} = DB) when Date =/= undefined ->
+  ConfigPath = filename:join([Path, Date, config_v1]),
+  IndexPath = filename:join([Path, Date, index_v1]),
+  DataPath = filename:join([Path, Date, data_v1]),
 
   case filelib:ensure_dir(ConfigPath) of
     ok -> ok;
@@ -52,16 +57,13 @@ create_new_db(#db{path = Path} = DB) ->
 read_file(Path) ->
   case file:read_file(Path) of
     {ok, Bin} -> Bin;
-    {error, _} ->
-      {ok, F} = file:open(Path, [binary,write,exclusive,raw]),
-      file:close(F),
-      <<>>
+    {error, _} -> <<>>
   end.
 
-open_existing_db(#db{path = Path} = DB, Mode) ->
-  ConfigPath = filename:join(Path, config_v1),
-  IndexPath = filename:join(Path, index_v1),
-  DataPath = filename:join(Path, data_v1),
+open_existing_db(#db{path = Path, date = Date} = DB, Mode) when Date =/= undefined  ->
+  ConfigPath = filename:join([Path, Date, config_v1]),
+  IndexPath = filename:join([Path, Date, index_v1]),
+  DataPath = filename:join([Path, Date, data_v1]),
 
   DB1 = case DB#db.sources of
     undefined ->
@@ -90,7 +92,7 @@ open_existing_db(#db{path = Path} = DB, Mode) ->
 
   case Mode of
     read -> DB2#db{config_fd_r = ConfigFd, index_fd_r = IndexFd, data_fd_r = DataFd};
-    write -> DB2#db{config_fd_a = ConfigFd, index_fd_a = IndexFd, data_fd_a = DataFd}
+    append -> DB2#db{config_fd_a = ConfigFd, index_fd_a = IndexFd, data_fd_a = DataFd}
   end.
 
 
@@ -103,8 +105,8 @@ append([], #db{} = DB) ->
 append([#tick{value = []}|_], #db{} = DB) ->
   {ok, DB};
 
-append(Ticks, #db{config_fd_a = undefined} = DB) ->
-  append(Ticks, open0(DB, append));
+append([#tick{utc = UTC}|_] = Ticks, #db{config_fd_a = undefined, date = undefined} = DB) ->
+  append(Ticks, open0(DB#db{date = pulsedb_time:date_path(UTC)}, append));
 
 append([#tick{name = Name, value = Value}|_] = Ticks, #db{sources = S, index = I} = DB) when is_list(S), is_list(I) ->
   validate_ticks(Ticks),
@@ -166,10 +168,15 @@ validate_ticks([Tick|_], Name, UTC) -> error({wrong_tick,Name,UTC,Tick}).
 
 
 -spec read(Query::[{atom(),any()}], pulsedb:db()) -> {ok, [tick()], pulsedb:db()}.
-read(Query, #db{config_fd_r = undefined} = DB) ->
-  read(Query, open0(DB, read));
+read(Query, #db{config_fd_r = undefined, date = Date} = DB) when Date =/= undefined ->
+  case open0(DB, read) of
+    #db{config_fd_r = undefined} = DB1 ->
+      {ok, [], DB1};
+    #db{} = DB1 ->
+      read(Query, DB1)
+  end;
 
-read(Query0, #db{index = Index, sources = Sources, data_fd_r = DataFd} = DB) ->
+read(Query0, #db{index = Index, sources = Sources, data_fd_r = DataFd, date = Date} = DB) when Date =/= undefined ->
   Query = pulsedb:parse_query(Query0),
   {name, Name} = lists:keyfind(name, 1, Query),
   case lists:keyfind(Name, 1, Index) of
@@ -209,12 +216,14 @@ unpack_index([#source{source_id = Id, name = Name}|Sources], Index) ->
 
 
 
--spec close(pulsedb:db()) -> ok.
-close(#db{config_fd_r = C_r, index_fd_r = I_r, data_fd_r = D_r, config_fd_a = C_a, index_fd_a = I_a, data_fd_a = D_a}) ->
+-spec close(pulsedb:db()) -> {pulsedb:db()}.
+close(#db{config_fd_r = C_r, index_fd_r = I_r, data_fd_r = D_r, config_fd_a = C_a, index_fd_a = I_a, data_fd_a = D_a} = DB) ->
   file:close(C_r), file:close(C_a),
   file:close(I_r), file:close(I_a),
   file:close(D_r), file:close(D_a),
-  ok.
+  {ok, DB#db{config_fd_r = undefined, index_fd_r = undefined, data_fd_r = undefined, 
+    config_fd_a = undefined, index_fd_a = undefined, data_fd_a = undefined, 
+    date = undefined, index = undefined, sources = undefined}}.
 
 
 
