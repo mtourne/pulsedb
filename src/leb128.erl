@@ -17,7 +17,9 @@ encode_signed(Value) when is_integer(Value)  ->
 
 -spec encode(non_neg_integer()) -> binary().
 encode(Value) when is_integer(Value) andalso Value >= 0 ->
-  encode_ranged(Value, 0, 16#80).
+  % encode_ranged(Value, 0, 16#80).
+  encode1(Value).
+
 
 
 encode_ranged(Value, Shift, Range) when -Range =< Value andalso Value < Range ->
@@ -43,7 +45,11 @@ encode1(Value) when is_integer(Value) andalso Value >= 2097152 andalso Value < 2
   <<1:1, Value:7/integer, 1:1, (Value bsr 7):7/integer, 1:1, (Value bsr 14):7/integer, 0:1, (Value bsr 21):7/integer>>;
 
 encode1(Value) when is_integer(Value) andalso Value >= 268435456 andalso Value < 34359738368 ->
-  <<1:1, Value:7/integer, 1:1, (Value bsr 7):7/integer, 1:1, (Value bsr 14):7/integer, 1:1, (Value bsr 21):7/integer, 0:1, (Value bsr 28):7/integer>>.
+  <<1:1, Value:7/integer, 1:1, (Value bsr 7):7/integer, 1:1, (Value bsr 14):7/integer, 1:1, (Value bsr 21):7/integer, 0:1, (Value bsr 28):7/integer>>;
+
+encode1(Value) when is_integer(Value) andalso Value >= 34359738368 ->
+  encode_ranged(Value, 0, 16#80).
+
 
 
 -spec decode(binary()) -> {integer(), binary()}.

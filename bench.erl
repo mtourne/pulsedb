@@ -20,7 +20,14 @@ main([]) ->
 
   Count = SourceCount*MinuteCount*60*2,
   Time = timer:now_diff(T2,T1),
-  io:format("written ~B data points in ~B seconds: ~B us per point\n", [Count, Time div 1000000, Time div Count]),
+
+  Size_ = os:cmd("du -k -d 0 benchdb"),
+  {match, [Size__]} = re:run(Size_, "(\\d+)", [{capture,all_but_first,list}]),
+  Size = list_to_integer(Size__) / 1024,
+  RawSize = Count*8 / (1024*1024),
+  Ratio = RawSize / Size,
+  io:format("written ~B data points in ~B seconds: ~B us per point. on disk: ~.1f MB, raw: ~.1f MB, ratio: ~.1f \n", 
+    [Count, Time div 1000000, Time div Count, Size, RawSize, Ratio]),
 
   T4 = erlang:now(),
   {ok, DB3} = pulsedb:open("benchdb"),
@@ -35,7 +42,7 @@ write_minutes(_Sources, 0, DB) ->
   DB;
 
 write_minutes(Sources, Count, DB) ->
-  if Count rem 10 == 0 -> io:format("write minute ~B\n", [Count]); true -> ok end,
+  if Count rem 100 == 0 -> io:format("write minute ~B\n", [Count]); true -> ok end,
   DB1 = write_minute(Sources, Count*60, DB),
   write_minutes(Sources, Count - 1, DB1).
 
