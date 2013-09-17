@@ -19,9 +19,13 @@ read(Query, #db{} = DB) ->
   Query1 = parse_query(Query),
   RequiredDates = required_dates(Query1),
   {ok, DB0} = close(DB),
-  {ok, Ticks, DB1} = load_ticks(RequiredDates, Query1, DB0),
-  Ticks1 = filter_ticks(Query1, Ticks),
-  {ok, Ticks1, DB1}.
+  case load_ticks(RequiredDates, Query1, DB0) of
+    {ok, Ticks, DB1} ->
+      Ticks1 = filter_ticks(Query1, Ticks),
+      {ok, Ticks1, DB1};
+    {error, _} = Error ->
+      Error
+  end.
 
 
 
@@ -53,10 +57,18 @@ load_ticks([], _Query, DB) ->
   {ok, [], DB};
 
 load_ticks([Date|Dates], Query, DB) ->
-  {ok, Ticks1, DB1} = pulsedb_disk:read(Query, DB#db{date = Date}),
-  {ok, DB2} = pulsedb_disk:close(DB1),
-  {ok, Ticks2, DB3} = load_ticks(Dates, Query, DB2),
-  {ok, Ticks1++Ticks2, DB3}.
+  case pulsedb_disk:read(Query, DB#db{date = Date}) of
+    {ok, Ticks1, DB1} ->
+      {ok, DB2} = pulsedb_disk:close(DB1),
+      case load_ticks(Dates, Query, DB2) of
+        {ok, Ticks2, DB3} ->
+          {ok, Ticks1++Ticks2, DB3};
+        {error, _} = Error ->
+          Error
+      end;        
+    {error, _} = Error ->
+      Error
+  end.
 
 
 

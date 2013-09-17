@@ -29,13 +29,11 @@
   sources :: [source()],
   index :: [{source_name(), index_block()}],
 
-  config_fd_a :: file:fd(),
-  data_fd_a :: file:fd(),
-  index_fd_a :: file:fd(),
+  mode :: undefined | read | append,
 
-  config_fd_r :: file:fd(),
-  data_fd_r :: file:fd(),
-  index_fd_r :: file:fd()
+  config_fd :: file:fd(),
+  data_fd :: file:fd(),
+  index_fd :: file:fd()
 }).
 
 
