@@ -34,7 +34,7 @@ create_new_db(#db{path = Path, date = Date, mode = append} = DB) when Date =/= u
     {error, Reason1} -> throw({error, {create_path_failed,ConfigPath,Reason1}})
   end,
 
-  Opts = [binary,append,exclusive,raw],
+  Opts = [binary,write,exclusive,raw],
 
   {ok, ConfigFd} = case file:open(ConfigPath, Opts) of
     {ok, CFile_} -> {ok, CFile_};
@@ -64,7 +64,7 @@ open_existing_db(#db{path = Path, date = Date, mode = Mode} = DB) when Date =/= 
   end,
 
   Opts = case Mode of
-    append -> [binary,append,raw];
+    append -> [binary,write,raw];
     read -> [binary,read,raw]
   end,
 
@@ -115,14 +115,14 @@ append_new_source(#tick{name = Name, value = Value}, #db{sources = Sources, conf
       E
   end,
 
-  {ok, ConfigPos} = file:position(ConfigFd, cur),
+  {ok, ConfigPos} = file:position(ConfigFd, eof),
   Columns = [Column || {Column,_} <- Value],
   EOF = Begin + 25*60*(4 + 8*length(Columns)),
   Source = #source{source_id = length(Sources), name = Name, columns = Columns, 
     start_of_block = Begin, end_of_block = EOF,
     data_offset = Begin, data_offset_ptr = ConfigPos + 3},
   Bin = encode_config(Source),
-  ok = file:write(ConfigFd, Bin),
+  ok = file:pwrite(ConfigFd, ConfigPos, Bin),
   {ok, DB#db{sources = Sources ++ [Source]}}.
 
 
