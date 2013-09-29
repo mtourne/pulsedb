@@ -5,21 +5,14 @@
 -record(source, {
   source_id :: non_neg_integer(),
   name :: source_name(),
-  columns = [] :: [column_name()]
+  columns = [] :: [column_name()],
+  data_offset :: non_neg_integer(),
+  data_offset_ptr :: non_neg_integer(),
+  start_of_block :: non_neg_integer(),
+  end_of_block :: non_neg_integer()
 }).
 
 -type source() :: #source{}.
-
-
--record(index_block, {
-  source_id :: non_neg_integer(),
-  utc1 :: utc(),
-  utc2 :: utc(),
-  offset :: non_neg_integer(),
-  size :: non_neg_integer()
-}).
-
--type index_block() :: #index_block{}.
 
 
 
@@ -27,13 +20,11 @@
   path :: file:filename(),
   date :: binary() | undefined,
   sources :: [source()],
-  index :: [{source_name(), index_block()}],
 
   mode :: undefined | read | append,
 
   config_fd :: file:fd(),
-  data_fd :: file:fd(),
-  index_fd :: file:fd()
+  data_fd :: file:fd()
 }).
 
 

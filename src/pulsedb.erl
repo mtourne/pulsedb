@@ -12,10 +12,12 @@
 -export([parse_query/1]).
 
 
+-spec open(Path::file:filename()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
 open(Path) ->
   pulsedb_disk:open(Path).
 
 
+-spec read(Query::[{atom(),any()}], pulsedb:db()) -> {ok, [tick()], pulsedb:db()} | {error, Reason::any()}.
 read(Query, #db{} = DB) ->
   Query1 = parse_query(Query),
   RequiredDates = required_dates(Query1),
@@ -76,6 +78,7 @@ load_ticks([Date|Dates], Query, DB) ->
 
 
 
+-spec append([pulsedb:tick()], pulsedb:db()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
 
 append([], #db{} = DB) ->
   {ok, DB};
@@ -90,6 +93,7 @@ append([#tick{utc = UTC}|_] = Ticks, #db{date = Date} = DB) ->
   end.
 
 
+-spec close(pulsedb:db()) -> {pulsedb:db()}.
 close(#db{} = DB) ->
   pulsedb_disk:close(DB).
 
