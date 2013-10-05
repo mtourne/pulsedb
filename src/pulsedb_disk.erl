@@ -64,7 +64,7 @@ open_existing_db(#db{path = Path, date = Date, mode = Mode} = DB) when Date =/= 
   end,
 
   Opts = case Mode of
-    append -> [binary,write,raw];
+    append -> [binary,read,write,raw];
     read -> [binary,read,raw]
   end,
 

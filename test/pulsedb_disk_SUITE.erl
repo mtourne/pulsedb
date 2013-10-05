@@ -9,7 +9,8 @@ all() ->
 
 groups() ->
   [{disk, [parallel], [
-    append_and_read
+    append_and_read,
+    reopen_existing
   ]}].
 
 
@@ -41,5 +42,34 @@ append_and_read(_) ->
 
   pulsedb_disk:close(ReadDB3),
   ok.
+
+
+reopen_existing(_) ->
+  {ok, DB1} = pulsedb_disk:open("test/v1/reopen_existing"),
+  Ticks1 = [
+    #tick{name = <<"source1">>, utc = 120, value = [{input,5},{output,0}]},
+    #tick{name = <<"source1">>, utc = 130, value = [{input,10},{output,2}]}
+  ],
+  {ok, DB2} = pulsedb_disk:append(Ticks1, DB1),
+  pulsedb_disk:close(DB2),
+
+
+  {ok, DB3} = pulsedb_disk:open("test/v1/reopen_existing"),
+  Ticks2 = [
+    #tick{name = <<"source2">>, utc = 140, value = [{input,5},{output,0}]},
+    #tick{name = <<"source2">>, utc = 150, value = [{input,10},{output,2}]}
+  ],
+  {ok, DB4} = pulsedb_disk:append(Ticks2, DB3),
+  pulsedb_disk:close(DB4),
+  
+  Ticks3 = Ticks1 ++ Ticks2,
+
+  {ok, ReadDB1} = pulsedb_disk:open("test/v1/reopen_existing"),
+
+  {ok, Ticks1, ReadDB2} = pulsedb_disk:read([{name,<<"source1">>}, {from, "1970-01-01"},{to,"1971-02-02"}], ReadDB1#db{date = <<"1970/01/01">>}),
+  {ok, Ticks2, ReadDB3} = pulsedb_disk:read([{name,<<"source2">>}, {from, "1970-01-01"},{to,"1971-02-02"}], ReadDB2),
+  pulsedb:close(ReadDB3),
+  ok.
+
 
 
