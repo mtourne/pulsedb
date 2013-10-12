@@ -6,6 +6,7 @@
 
 
 -export([open/1, append/2, read/2, close/1]).
+-export([info/1]).
 % -export([write_events/3]).
 
 
@@ -175,6 +176,46 @@ append_data(#tick{name = Name, utc = UTC, value = Values}, #db{data_fd = DataFd,
       {ok, DB}
   end.
 
+
+
+
+
+info(#db{sources = Sources}) when is_list(Sources) ->
+  Src = [{Name,[{columns,Columns}]} || #source{name = Name, columns = Columns} <- Sources],
+  [{sources,Src}];
+
+info(#db{path = Path} = DB) ->
+  case last_day(Path) of
+    undefined -> [];
+    DayPath -> info(DB#db{sources = decode_config(read_file(filename:join(DayPath,config_v2)))})
+  end.
+
+
+last_folder(F, Path, Length) ->
+  case prim_file:list_dir(F, Path) of
+    {ok, List} ->
+      case lists:reverse(lists:sort([Y || Y <- List, length(Y) == Length])) of
+        [] -> undefined;
+        [Y|_] -> Y
+      end;
+    _ ->
+      undefined
+  end.
+
+last_day(Path) ->
+  {ok, F} = prim_file:start(),
+  Val = try last_day0(F, Path)
+  catch
+    throw:_ -> undefined
+  end,
+  prim_file:stop(F),
+  Val.
+
+last_day0(F, Path) ->
+  (Year = last_folder(F, Path, 4)) =/= undefined orelse throw(undefined),
+  (Month = last_folder(F, filename:join(Path,Year), 2)) =/= undefined orelse throw(undefined),
+  (Day = last_folder(F, filename:join([Path,Year,Month]), 2)) =/= undefined orelse throw(undefined),
+  filename:join([Path,Year,Month,Day]).
 
 
 

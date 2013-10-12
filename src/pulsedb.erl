@@ -7,7 +7,7 @@
 -export_types([db/0, utc/0, source_name/0, column_name/0, tick/0]).
 
 
--export([open/1, read/2, append/2, close/1]).
+-export([open/1, read/2, info/1, append/2, close/1]).
 
 -export([parse_query/1]).
 
@@ -99,6 +99,15 @@ close(#db{} = DB) ->
 
 
 
+-spec info(pulsedb:db()|file:filename()) -> [{sources,[{pulsedb:source_name(),[{columns,[pulsedb:column_name()]}]}]}].
+info(#db{} = DB) ->
+  pulsedb_disk:info(DB);
+
+info(Path) ->
+  {ok, DB} = pulsedb:open(Path),
+  Info = pulsedb_disk:info(DB),
+  pulsedb:close(DB),
+  Info.
 
 
 

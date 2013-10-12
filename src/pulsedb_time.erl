@@ -17,6 +17,9 @@ parse(UTC) when is_integer(UTC) ->
 parse(String) when is_list(String) ->
   parse(iolist_to_binary(String));
 
+parse({Y,M,D}) ->
+  utc({{Y,M,D},{0,0,0}});
+
 parse(<<Y:4/binary, "-", Mon:2/binary, "-", D:2/binary>>) ->
   utc({{to_i(Y), to_i(Mon), to_i(D)}, {0,0,0}});
 
