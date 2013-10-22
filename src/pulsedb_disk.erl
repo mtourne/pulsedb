@@ -247,7 +247,7 @@ read(Query0, #db{sources = Sources, data_fd = DataFd, date = Date, mode = read} 
           TicksBin1 = [ {UTC,Row} || <<UTC:32, Row:RowSize/binary>> <= Bin],
           TicksBin2 = filter_ticks(TicksBin1, proplists:get_value(from,Query), proplists:get_value(to,Query)),
           Ticks = [#tick{name = Name, utc = UTC, value = lists:zip(Columns, [V || <<V:64>> <= Row])} || {UTC,Row} <- TicksBin2],
-          {ok, Ticks, DB};
+          {ok, lists:keysort(#tick.utc, Ticks), DB};
         _ ->
           {ok, [], DB}
       end
