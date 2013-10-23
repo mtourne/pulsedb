@@ -134,13 +134,15 @@ merge(_) ->
   Ticks2 = [
     #tick{name = <<"source1">>, utc = 11, value = [{input,5},{output,0}]},
     #tick{name = <<"source1">>, utc = 12, value = [{input,10},{output,2}]},
-    #tick{name = <<"source1">>, utc = 13, value = [{input,3},{output,6}]}
+    #tick{name = <<"source1">>, utc = 13, value = [{input,3},{output,6}]},
+    #tick{name = <<"source1">>, utc = 21, value = [{input,5},{output,0}]},
+    #tick{name = <<"source1">>, utc = 22, value = [{input,10},{output,2}]}
   ],
-  {ok, DB2} = pulsedb:append(Ticks2, DB1),
+  {ok, 3, DB2} = pulsedb:merge(Ticks2, DB1),
   pulsedb:close(DB2),
 
 
-  Ticks3 = Ticks2++Ticks1,
+  Ticks3 = lists:sublist(Ticks2,1,3)++Ticks1,
   {ok, DB3} = pulsedb:open("test/v2/merge"),
   {ok, Ticks3, DB4} = pulsedb:read([{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], DB3),
   pulsedb:close(DB4),

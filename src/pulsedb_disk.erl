@@ -15,7 +15,7 @@ open(Path) ->
   {ok, #db{path = Path}}.
 
 
-open0(#db{path = Path, config_fd = undefined, date = Date} = DB, Mode) when Date =/= undefined  ->
+open0(#db{path = Path, config_fd = undefined, date = Date} = DB, Mode) when Date =/= undefined ->
   case filelib:is_regular(filename:join([Path,Date,config_v2])) of
     true ->
       open_existing_db(DB#db{mode = Mode});

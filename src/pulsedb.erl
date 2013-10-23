@@ -7,7 +7,7 @@
 -export_types([db/0, utc/0, source_name/0, column_name/0, tick/0]).
 
 
--export([open/1, read/2, info/1, append/2, close/1]).
+-export([open/1, read/2, info/1, append/2, merge/2, close/1]).
 
 -export([parse_query/1]).
 
@@ -91,6 +91,25 @@ append([#tick{utc = UTC}|_] = Ticks, #db{date = Date} = DB) ->
       {ok, DB1} = pulsedb_disk:close(DB),
       pulsedb_disk:append(Ticks, DB1)
   end.
+
+
+
+
+-spec merge([pulsedb:tick()], pulsedb:db()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
+
+merge([], #db{} = DB) ->
+  {ok, DB};
+
+merge([#tick{utc = FirstUTC, name = Name}|_] = Ticks, #db{path = Path} = DB) ->
+  {ok, RDB0} = open(Path),
+  From = pulsedb_time:parse(FirstUTC),
+  To = From+86400,
+  {ok, AvailTicks, RDB1} = read([{from,From},{to,To},{name,Name}], RDB0),
+  close(RDB1),
+  WriteTicks = [Tick || #tick{utc = UTC} = Tick <- Ticks, not lists:keymember(UTC, #tick.utc, AvailTicks)],
+  {ok, DB1} = pulsedb_disk:append(WriteTicks, DB),
+  {ok, length(WriteTicks), DB1}.
+
 
 
 -spec close(pulsedb:db()) -> {pulsedb:db()}.
