@@ -98,7 +98,7 @@ append([#tick{utc = UTC}|_] = Ticks, #db{date = Date} = DB) ->
 -spec merge([pulsedb:tick()], pulsedb:db()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
 
 merge([], #db{} = DB) ->
-  {ok, DB};
+  {ok, 0, DB};
 
 merge([#tick{utc = FirstUTC, name = Name}|_] = Ticks, #db{path = Path} = DB) ->
   {ok, RDB0} = open(Path),
