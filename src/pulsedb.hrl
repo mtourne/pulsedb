@@ -3,9 +3,10 @@
 -type value() :: integer().
 
 -record(source, {
-  source_id :: non_neg_integer(),
+  id :: non_neg_integer(),
   name :: source_name(),
-  columns = [] :: [column_name()],
+  original_name :: source_name(),
+  original_tags :: list(),
   data_offset :: non_neg_integer(),
   data_offset_ptr :: non_neg_integer(),
   start_of_block :: non_neg_integer(),
@@ -20,6 +21,7 @@
   path :: file:filename(),
   date :: binary() | undefined,
   sources :: [source()],
+  cached_source_names = [],
 
   mode :: undefined | read | append,
 
@@ -32,3 +34,6 @@
 
 
 -type utc() :: non_neg_integer().
+
+-type tick() :: {Name::binary(), UTC::utc(), Value::value(), [Tags::{atom(),binary()}]}.
+

@@ -8,4 +8,7 @@ stop() ->
   erlang:exit(erlang:whereis(?MODULE), shutdown).
 
 init([]) ->
-  {ok, {{one_for_one, 10, 10}, []}}.
+  Supervisors = [
+    {pulsedb_repeater, {pulsedb_repeater, start_link, []}, permanent, 100, worker, []}
+  ],
+  {ok, {{one_for_one, 10, 10}, Supervisors}}.
