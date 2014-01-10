@@ -9,12 +9,24 @@ all() ->
 
 groups() ->
   [{append_and_read, [parallel], [
-    append_and_read
+    append_and_read,
     % forbid_to_read_after_append,
     % forbid_to_append_after_read,
     % merge,
-    % info
+    info
   ]}].
+
+
+
+init_per_suite(Config) ->
+  application:set_env(pulsedb,ticks_per_hour,60000),
+  Config.
+
+
+end_per_suite(Config) ->
+  Config.
+
+
 
 append_and_read(_) ->
   {ok, DB1} = pulsedb:open("test/v3/pulse_rw"),
@@ -119,37 +131,45 @@ append_and_read(_) ->
 %   ok.
 
 
-% info(_) ->
-%   {ok, DB0} = pulsedb:open("test/v2/info"),
+info(_) ->
+  {ok, DB0} = pulsedb:open("test/v2/info"),
 
-%   Ticks1 = [
-%     #tick{name = <<"source1">>, utc = 21, value = [{input,5},{output,0}]},
-%     #tick{name = <<"source1">>, utc = 22, value = [{input,10},{output,2}]},
-%     #tick{name = <<"source1">>, utc = 23, value = [{input,3},{output,6}]}
-%   ],
-%   {ok, DB1} = pulsedb:append(Ticks1, DB0),
+  Ticks1 = [
+    {<<"input">>,  21,  5, [{name, <<"source1">>}]},
+    {<<"output">>, 21,  0, [{name, <<"source1">>}]},
+   
+    {<<"input">>,  22, 10, [{name, <<"source1">>}]},
+    {<<"output">>, 22,  2, [{name, <<"source1">>}]},
+   
+    {<<"input">>,  23,  3, [{name, <<"source1">>}]},
+    {<<"output">>, 23,  6, [{name, <<"source1">>}]}],
+  {ok, DB1} = pulsedb:append(Ticks1, DB0),
 
-%   Ticks2 = [
-%     #tick{name = <<"source2">>, utc = 21, value = [{x,5},{y,0}]},
-%     #tick{name = <<"source2">>, utc = 22, value = [{x,10},{y,2}]},
-%     #tick{name = <<"source2">>, utc = 23, value = [{x,3},{y,6}]}
-%   ],
-%   {ok, DB2} = pulsedb:append(Ticks1, DB1),
+  Ticks2 = [
+    {<<"x">>, 21,  5, [{name, <<"source2">>}, {host, <<"t1">>}]},
+    {<<"y">>, 21,  0, [{name, <<"source2">>}, {host, <<"t1">>}]},
+   
+    {<<"x">>, 22, 10, [{name, <<"source2">>}, {host, <<"t2">>}]},
+    {<<"y">>, 22,  2, [{name, <<"source2">>}, {host, <<"t2">>}]},
+   
+    {<<"x">>, 23,  3, [{name, <<"source2">>}, {host, <<"t1">>}]},
+    {<<"y">>, 23,  6, [{name, <<"source2">>}, {host, <<"t1">>}]}],
+  {ok, DB2} = pulsedb:append(Ticks2, DB1),
 
-%   Info1 = pulsedb:info(DB2),
-%   {_,Sources1} = lists:keyfind(sources,1,Info1),
-%   {_,S1} = lists:keyfind(<<"source1">>,1,Sources1),
-%   {_,Columns1} = lists:keyfind(columns,1,S1),
-%   [input,output] = Columns1,
+  Info1 = pulsedb:info(DB2),
+  {_,Metrics1} = lists:keyfind(sources,1,Info1),
+  {_,Tags1} = lists:keyfind(<<"input">>,1,Metrics1),
+  TagNames1 = [Name || {Name,_} <- Tags1],
+  [name] = TagNames1,
 
-%   pulsedb:close(DB2),
+  pulsedb:close(DB2),
 
-%   Info2 = pulsedb:info("test/v2/info"),
-%   {_,Sources2} = lists:keyfind(sources,1,Info2),
-%   {_,S2} = lists:keyfind(<<"source1">>,1,Sources2),
-%   {_,Columns2} = lists:keyfind(columns,1,S2),
-%   [input,output] = Columns2,
-%   ok.
+  Info2 = pulsedb:info("test/v2/info"),
+  {_,Metrics2} = lists:keyfind(sources,1,Info2),
+  {_,Tags2} = lists:keyfind(<<"x">>,1,Metrics2),
+  TagNames2 = [Name || {Name,_} <- Tags2],
+  [host, name] = lists:sort(TagNames2),
+  ok.
 
 
 
@@ -184,15 +204,4 @@ append_and_read(_) ->
 %   pulsedb:close(DB4),
 
 %   ok.
-
-
-
-
-
-
-
-
-
-
-
 

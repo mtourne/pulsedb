@@ -10,6 +10,7 @@
 
 
 -export([open/1, append/2, read/3, close/1]).
+-export([info/1]).
 -export([parse_query/1]).
 
 
@@ -125,15 +126,15 @@ load_ticks([Date|Dates], Name, Query, DB) ->
 
 
 
-% -spec info(pulsedb:db()|file:filename()) -> [{sources,[{pulsedb:source_name(),[{columns,[pulsedb:column_name()]}]}]}].
-% info(#db{} = DB) ->
-%   pulsedb_disk:info(DB);
+-spec info(pulsedb:db()|file:filename()) -> [{sources,[{pulsedb:source_name(),[{columns,[pulsedb:column_name()]}]}]}].
+info(#db{} = DB) ->
+  pulsedb_disk:info(DB);
 
-% info(Path) ->
-%   {ok, DB} = pulsedb:open(Path),
-%   Info = pulsedb_disk:info(DB),
-%   pulsedb:close(DB),
-%   Info.
+info(Path) ->
+  {ok, DB} = pulsedb:open(Path),
+  Info = pulsedb_disk:info(DB),
+  pulsedb:close(DB),
+  Info.
 
 
 

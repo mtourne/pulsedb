@@ -146,9 +146,9 @@ encode_config(#source{name = Name, data_offset = Offset, start_of_block = Start,
 -spec decode_config(binary()) -> [source()].
 
 decode_config(Bin) when is_binary(Bin) ->
-  decode_config(Bin, 0).
+  decode_config(Bin, 0, 0).
 
-decode_config(<<?CONFIG_SOURCE, Length:16, Source:Length/binary, Rest/binary>>, ConfigOffset) ->
+decode_config(<<?CONFIG_SOURCE, Length:16, Source:Length/binary, Rest/binary>>, ConfigOffset, Id) ->
   <<Offset:32, Start:32, End:32, L:16, Name:L/binary>> = Source,
   DataOffsetPtr = ConfigOffset + 3,
   [OriginalName|Tags] = binary:split(Name, <<":">>, [global]),
@@ -156,11 +156,11 @@ decode_config(<<?CONFIG_SOURCE, Length:16, Source:Length/binary, Rest/binary>>, 
     [K,V] = binary:split(T, <<"=">>),
     {binary_to_atom(K,latin1),V}
   end, Tags),
-  [#source{name = Name, start_of_block = Start, end_of_block = End, data_offset = Offset, data_offset_ptr = DataOffsetPtr,
+  [#source{id = Id, name = Name, start_of_block = Start, end_of_block = End, data_offset = Offset, data_offset_ptr = DataOffsetPtr,
     original_name = OriginalName, original_tags = OriginalTags}
-    |decode_config(Rest, ConfigOffset + 1 + 2 + Length)];
+    |decode_config(Rest, ConfigOffset + 1 + 2 + Length, Id + 1)];
 
-decode_config(<<>>, _) ->
+decode_config(<<>>, _, _) ->
   [].
 
 
