@@ -5,10 +5,8 @@
 -define(TIMEOUT, 10000).
 
 open(Path) ->
-  {URL, AuthToken, SeriesId} = parse_url(Path),
-  DB = #tempodb{url = URL, 
-                auth = AuthToken, 
-                series = SeriesId},
+  {URL, AuthToken} = parse_url(Path),
+  DB = #tempodb{url = URL, auth = AuthToken},
   {ok, DB}.
 
 
@@ -21,47 +19,94 @@ append(Ticks, #tempodb{}=DB) when is_list(Ticks) ->
             [{key, <<SeriesKey/binary, ".series">>}, 
              {t, utc_to_iso8601(UTC)}, 
              {v, Value}]
-            end || {Name, UTC, Value, Tags} <- Ticks],
-  write(DB, Data),
-  DB.
+          end || {Name, UTC, Value, Tags} <- Ticks],
+  append_data(DB, Data).
 
 
+read(Name, Query, #tempodb{}=DB) ->
+  read_data(Name, Query, DB).
 
-read(Name, Query0, #tempodb{url=BaseUrl, auth=AuthToken}=DB) ->
+
+read_data(Name, Query0, #tempodb{url=BaseUrl, auth=AuthToken}=DB) ->
   Query = pulsedb:parse_query(Query0),
   Hdrs = [{"authorization", <<"Basic ", AuthToken/binary>>}],
   URL = iolist_to_binary([BaseUrl, "/data/?", query_attrs([{column,Name}|Query])]),
-  {ok, {{200, _}, _, ResponseBody}} = lhttpc:request(URL, get, Hdrs, ?TIMEOUT),
-  Data = jsx:decode(ResponseBody),
-  io:format("RESPONSE ~p", [Data]),
-  {ok, [], DB}.
+  Result = case lhttpc:request(URL, get, Hdrs, ?TIMEOUT) of
+    {ok, {{200, _}, _, ResponseBody}} ->
+      Data = jsx:decode(ResponseBody),
+      io:format("RESP ~p~n~p~n", [URL, Data]),
+      extract_data(Data);
+    {ok, {{StatusCode, ReasonPhrase},_,ResponseBody}} ->
+      lager:warning("tempo_db read failed: ~p|~p:~p", [StatusCode, ReasonPhrase, ResponseBody]),
+      [];
+    {error, Reason} ->
+      lager:warning("tempo_db read failed: ~p", [Reason]),
+      []
+  end,
+  {ok, Result, DB}.
 
 close(#tempodb{}) ->
   ok.
 
 
 
-write(#tempodb{url=BaseUrl, auth=AuthToken}, Data) ->
+append_data(#tempodb{url=BaseUrl, auth=AuthToken}=DB, Data) ->
   URL = iolist_to_binary([BaseUrl, "/multi/"]),
   Hdrs = [{"authorization", <<"Basic ", AuthToken/binary>>}],
   Body = jsx:encode(Data),
-  {ok, {{200, _}, _, _}} = lhttpc:request(URL, post, Hdrs, Body, ?TIMEOUT).
-  
+  case lhttpc:request(URL, post, Hdrs, Body, ?TIMEOUT) of
+    {ok, {{200, _}, _, _}} ->
+      ok;
+    {ok, {{StatusCode, ReasonPhrase},_,ResponseBody}} ->
+      lager:warning("tempo_db write failed: ~p|~p:~p", [StatusCode, ReasonPhrase, ResponseBody]);
+    {error, Reason} ->
+      lager:warning("tempo_db write failed: ~p", [Reason])
+  end,
+  {ok, DB}.
 
 parse_url(BasePath) ->
   {ok, ParsedUrl} = http_uri:parse(BasePath),
   {Scheme, UserInfo, Host, Port, Path, _Query} = ParsedUrl,
   URL = iolist_to_binary(io_lib:format("~p://~s:~B~s", [Scheme, Host, Port, Path])),
-  [Key, Secret, SeriesId] = string:tokens(UserInfo, ":"),
-  AuthToken = base64:encode(Key++":"++Secret),
-  {URL, AuthToken, SeriesId}.
+  AuthToken = base64:encode(UserInfo),
+  {URL, AuthToken}.
 
 
 
 utc_to_iso8601(UTC) ->
   GS = UTC + calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
   {{Y,M,D},{HH,MM,SS}} = calendar:gregorian_seconds_to_datetime(GS),
-  iolist_to_binary(io_lib:format("~4.10.0B-~2.10.0B-~2.10.0BT~2.10.0B:~2.10.0B:~2.10.0B.000+0000", [Y, M, D, HH, MM, SS])).
+  iolist_to_binary(io_lib:format("~4.10.0B-~2.10.0B-~2.10.0BT"
+                                 "~2.10.0B:~2.10.0B:~2.10.0B.000+0000", [Y, M, D, HH, MM, SS])).
+
+iso8601_to_utc(<<YY:4/bytes,"-",MM:2/bytes,"-",DD:2/bytes,"T",
+                  H:2/bytes,":", M:2/bytes,":", S:2/bytes,
+                    _/binary>>) ->
+  DateTime = {{binary_to_integer(YY), binary_to_integer(MM), binary_to_integer(DD)},
+              {binary_to_integer(H),  binary_to_integer(M),  binary_to_integer(S)}},
+  Seconds = calendar:datetime_to_gregorian_seconds(DateTime),
+  Seconds - calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}).
+
+
+
+extract_data(Data) ->
+  
+  Extracted = lists:flatmap(fun (SeriesData) -> series_data(SeriesData) end, Data),
+  Sorted = lists:sort(Extracted),
+  Sorted.
+  
+
+series_data(SeriesData) ->
+  Data = proplists:get_value(<<"data">>, SeriesData),
+  [{iso8601_to_utc(proplists:get_value(<<"t">>, It)),
+                   proplists:get_value(<<"v">>, It)} || It <- Data].
+
+
+
+aggregate([{UTC,V1},{UTC,V2}|Ticks]) -> aggregate([{UTC,V1+V2}|Ticks]);
+aggregate([{UTC,V}|Ticks]) -> [{UTC,V}|aggregate(Ticks)];
+aggregate([]) -> [].
+
 
 
 series_name([Hd|Rest]) ->
@@ -92,10 +137,32 @@ format_attr({to, UTC0}) ->
   UTC = utc_to_iso8601(UTC0),
   <<"end=", UTC/binary>>;
 
+format_attr({function, FN}) -> 
+  <<"function=", FN/binary>>;
+
+format_attr({interval, I}) -> 
+  <<"interval=", I/binary>>;
+
 format_attr({Attr, Value}) -> 
-  iolist_to_binary(io_lib:format("attr[~p]=~s", [Attr, Value])).
+  iolist_to_binary(io_lib:format("attr[~p]=~s", [Attr, escape_special(Value)])).
 
 
+escape_special(Value) when is_binary(Value) orelse is_list(Value) ->
+  join(re:split(Value,"[\.:]"), "_");
+
+escape_special(Value) -> 
+  Value.
 
 
+join([], _) -> <<>>;
+join([Value], _) -> Value;
+join([Value|Rest_], Separator) ->
+  Rest = join(Rest_, Separator),
+  <<Value/binary, Separator/binary, Rest/binary>>.
 
+% pulsedb_tempo:read(<<"output">>, [{from, 1389600000},{to, 1389689869}, 
+%                                   {account, <<"emailA">>}], DB).
+
+% pulsedb_tempo:read(<<"output">>, [{from, 1389600000},{to, 1389689869}, 
+%                                   {account, <<"emailA">>}, 
+%                                   {function, <<"sum">>}, {interval, <<"6day">>}], DB).

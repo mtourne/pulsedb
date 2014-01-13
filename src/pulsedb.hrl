@@ -32,8 +32,7 @@
 -record(tempodb, 
   {
    url,
-   auth,
-   series
+   auth
    }).
 
 
