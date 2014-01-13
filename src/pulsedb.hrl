@@ -29,6 +29,13 @@
   data_fd :: file:fd()
 }).
 
+-record(tempodb, 
+  {
+   url,
+   auth,
+   series
+   }).
+
 
 -type db() :: #db{}.
 
