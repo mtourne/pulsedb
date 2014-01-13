@@ -160,6 +160,26 @@ join([Value|Rest_], Separator) ->
   Rest = join(Rest_, Separator),
   <<Value/binary, Separator/binary, Rest/binary>>.
 
+
+%{ok, DB} = pulsedb_tempo:open("https://c06f0aba43b1449e9f3ae3a5018f572d:ae7457eb892d4d0cbae99a567a42f9f8@api.tempo-db.com/v1").
+
+
+% pulsedb_tempo:append({<<"input">>,  1389602565, 1,   [{name, "m1"}, {account, "emailA"}, {point, "pnt1"}]}, DB).
+% pulsedb_tempo:append({<<"output">>, 1389602565, 2,   [{name, "m1"}, {account, "emailA"}, {point, "pnt1"}]}, DB).
+% pulsedb_tempo:append({<<"input">>,  1389602565, 10,  [{name, "m1"}, {account, "emailA"}, {point, "pnt2"}]}, DB).
+% pulsedb_tempo:append({<<"output">>, 1389602565, 20,  [{name, "m1"}, {account, "emailA"}, {point, "pnt3"}]}, DB).
+% pulsedb_tempo:append({<<"input">>,  1389602565, 100, [{name, "m1"}, {account, "emailA"}, {point, "pnt3"}]}, DB).
+% pulsedb_tempo:append({<<"output">>, 1389602565, 200, [{name, "m1"}, {account, "emailA"}, {point, "pnt3"}]}, DB).
+% pulsedb_tempo:append({<<"input">>,  1389602566, 5,   [{name, "m1"}, {account, "emailA"}, {point, "pnt1"}]}, DB).
+% pulsedb_tempo:append({<<"output">>, 1389602566, 6,   [{name, "m1"}, {account, "emailA"}, {point, "pnt1"}]}, DB).
+% pulsedb_tempo:append({<<"input">>,  1389602566, 15,  [{name, "m1"}, {account, "emailA"}, {point, "pnt2"}]}, DB).
+% pulsedb_tempo:append({<<"output">>, 1389602566, 26,  [{name, "m1"}, {account, "emailA"}, {point, "pnt3"}]}, DB).
+% pulsedb_tempo:append({<<"input">>,  1389602566, 105, [{name, "m1"}, {account, "emailA"}, {point, "pnt3"}]}, DB).
+% pulsedb_tempo:append({<<"output">>, 1389602566, 206, [{name, "m1"}, {account, "emailA"}, {point, "pnt3"}]}, DB).
+
+% pulsedb_tempo:read(<<"input">>, [{from, 1389602550},{to, 1389682869}, {account, <<"emailA">>}], DB).
+
+
 % pulsedb_tempo:read(<<"output">>, [{from, 1389600000},{to, 1389689869}, 
 %                                   {account, <<"emailA">>}], DB).
 
