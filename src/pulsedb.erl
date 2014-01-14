@@ -6,9 +6,6 @@
 -export_types([db/0, utc/0, source_name/0, column_name/0, tick/0]).
 
 
-
-
-
 -export([open/1, append/2, read/3, close/1]).
 -export([info/1]).
 -export([parse_query/1]).
