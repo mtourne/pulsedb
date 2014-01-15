@@ -77,9 +77,20 @@ open_existing_db(#db{path = Path, date = Date, mode = Mode} = DB) when Date =/= 
 
 
 
--spec append(pulsedb:tick(), pulsedb:db()) -> pulsedb:db().
+-spec append(pulsedb:tick() | [pulsedb:tick()], pulsedb:db()) -> pulsedb:db().
+
+append([{_,_,_,_} = Tick|Ticks], #db{} = DB) ->
+  {ok, DB1} = append(Tick, DB),
+  append(Ticks, DB1);
+
+append([], #db{} = DB) ->
+  {ok, DB};
+
 append(_, #db{mode = read, path = Path}) ->
   error({need_to_reopen_pulsedb_for_append,Path});
+
+append({Name, UTC, Value, _Tags} = T, #db{}) when not is_binary(Name); not is_integer(UTC); not is_integer(Value) ->
+  error({invalid_tick, T});
 
 append({_Name, UTC, _Value, _Tags} = Tick, #db{config_fd = undefined, date = undefined} = DB) ->
   append(Tick, open0(DB#db{date = pulsedb_time:date_path(UTC)}, append));
