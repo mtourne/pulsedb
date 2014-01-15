@@ -11,6 +11,7 @@ groups() ->
   [{append_and_read, [parallel], [
     append_and_read,
     worker_append_and_read,
+    parse_query,
     % forbid_to_read_after_append,
     % forbid_to_append_after_read,
     % merge,
@@ -145,6 +146,15 @@ worker_append_and_read(_) ->
     {4000123,3}
   ], _} = pulsedb:read(<<"input">>, [{from, "1970-01-01"},{to,"1971-01-02"}], DB1),
 
+
+  {ok, [
+    {120,5},
+    {130,10},
+    {140,3}
+  ], _} = pulsedb:read(<<"sum:input{name=source1,from=1970-01-01,to=1970-01-02}">>, DB1),
+
+  pulsedb:close(DB1),
+
   os:cmd("rm -rf test/v3/worker_rw/1970/01/01"),
   ok.
 
@@ -210,7 +220,7 @@ info(_) ->
   {_,Metrics1} = lists:keyfind(sources,1,Info1),
   {_,Tags1} = lists:keyfind(<<"input">>,1,Metrics1),
   TagNames1 = [Name || {Name,_} <- Tags1],
-  [name] = TagNames1,
+  [<<"name">>] = TagNames1,
 
   pulsedb:close(DB2),
 
@@ -218,13 +228,21 @@ info(_) ->
   {_,Metrics2} = lists:keyfind(sources,1,Info2),
   {_,Tags2} = lists:keyfind(<<"x">>,1,Metrics2),
   TagNames2 = [Name || {Name,_} <- Tags2],
-  [host, name] = lists:sort(TagNames2),
+  [<<"host">>, <<"name">>] = lists:sort(TagNames2),
   ok.
 
 
 
 
+parse_query(_) ->
+  {<<"cpu">>, <<"max">>, []} = pulsedb:parse_query("max:cpu"),
+  {<<"cpu">>, <<"max">>, [{<<"host">>,<<"flu1">>}]} = pulsedb:parse_query("max:cpu{host=flu1}"),
+  {<<"media_output">>, <<"sum">>, [{<<"media">>,<<"ort">>},{<<"account">>,<<"1970-01-01">>}]} = 
+    pulsedb:parse_query("sum:media_output{media=ort,account=1970-01-01}"),
+  {<<"cpu">>, <<"max">>, [{<<"host">>,<<"flu1">>},{from,<<"123">>},{to,<<"456">>}]} = pulsedb:parse_query("max:cpu{host=flu1,from=123,to=456}"),
 
+  {<<"cpu">>, <<"max">>, [{<<"host">>,<<"flu1">>},{from,<<"1970-01-01">>},{to,<<"456">>}]} = pulsedb:parse_query("max:cpu{host=flu1,from=1970-01-01,to=456}"),
+  ok.
 
 
 % merge(_) ->

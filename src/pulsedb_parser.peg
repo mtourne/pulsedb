@@ -1,0 +1,36 @@
+
+query <- agg:aggregator ":" mn:metric_name "{" tags:tags / agg:aggregator ":" mn:metric_name `
+  {proplists:get_value(mn,Node), proplists:get_value(agg,Node), proplists:get_value(tags,Node,[])}
+`;
+
+tags <- tag:tag "}" / tag:tag "," tags:tags `
+  [proplists:get_value(tag,Node)] ++ proplists:get_value(tags,Node,[])
+`;
+
+
+aggregator <- string;
+
+metric_name <- string;
+
+tag <- key:string "=" value:string `
+  Key = proplists:get_value(key,Node),
+  Value = proplists:get_value(value,Node),
+  case Key of
+    <<"from">> -> {from, Value};
+    <<"to">> -> {to, Value};
+    _ -> {Key, Value}
+  end
+`;
+
+
+
+
+string <- '"' s:((!'"' .)*) '"' / s:(nonspace)+ `
+  case Node of
+    {s,S} -> iolist_to_binary(S);
+    _ -> iolist_to_binary(proplists:get_value(s,Node))
+  end
+`;
+
+
+nonspace <- [^ ;\{\}\n\t\r\,\=\:] ~;

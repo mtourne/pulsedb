@@ -161,7 +161,7 @@ source_name(Name, Tags, #disk_db{cached_source_names = SourceNames} = DB) ->
     {_, SourceName} -> 
       {SourceName, DB};
     false ->
-      SourceName = iolist_to_binary([Name, [[":",atom_to_binary(K,latin1),"=",V] ||  {K,V} <- lists:sort(Tags)]]),
+      SourceName = iolist_to_binary([Name, [[":",K,"=",V] ||  {K,V} <- lists:sort(Tags)]]),
       {SourceName, DB#disk_db{cached_source_names = [{{Name,Tags},SourceName}|SourceNames]}}
   end.
 
@@ -206,7 +206,7 @@ decode_config(<<?CONFIG_SOURCE, Length:16, Source:Length/binary, Rest/binary>>, 
   [OriginalName|Tags] = binary:split(Name, <<":">>, [global]),
   OriginalTags = lists:map(fun(T) ->
     [K,V] = binary:split(T, <<"=">>),
-    {binary_to_atom(K,latin1),V}
+    {K,V}
   end, Tags),
   [#source{id = Id, name = Name, start_of_block = Start, end_of_block = End, data_offset = Offset, data_offset_ptr = DataOffsetPtr,
     original_name = OriginalName, original_tags = OriginalTags}
@@ -280,15 +280,17 @@ last_day0(F, Path) ->
 
 
 
--spec read(Name::source_name(), Query::[{atom(),any()}], pulsedb:db()) -> {ok, [tick()], pulsedb:db()} | {error, Reason::any()}.
+-spec read(Name::source_name(), Query::[{binary(),binary()}], pulsedb:db()) -> {ok, [tick()], pulsedb:db()} | {error, Reason::any()}.
 
 % read(_Name, _Query, #disk_db{mode = append}) ->
 %   {error, need_to_reopen_for_read};
 
 read(Name, Query, #disk_db{path = Path, date = Date} = DB) ->
+  % ct:pal("query: ~p ~p", [Name, Query]),
   RequiredDates = required_dates(Query),
   case load_ticks(RequiredDates, Name, Query, #disk_db{path = Path, date = Date}) of
-    {ok, Ticks, _DB1} ->
+    {ok, Ticks, DB1} ->
+      close(DB1),
       {ok, Ticks, DB};
     {error, _} = Error ->
       Error
@@ -332,7 +334,7 @@ read0(Name, Query, #disk_db{config_fd = undefined, date = Date} = DB) when Date 
   end;
 
 read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mode = read} = DB) when Date =/= undefined ->
-  Tags = [{K,V} || {K,V} <- Query, K =/= from andalso K =/= to],
+  Tags = [{K,V} || {K,V} <- Query, K =/= from andalso K =/= to andalso K =/= aggregator],
   ReadSources = select_sources(Name, Tags, Sources),
 
   Ticks1 = lists:flatmap(fun(#source{start_of_block = Start, data_offset = Offset}) ->

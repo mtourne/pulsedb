@@ -1,6 +1,6 @@
 -module(pulsedb_worker).
 -export([start_link/2]).
--export([append/2, read/3]).
+-export([append/2, read/3, stop/1]).
 
 -export([init/1, handle_call/3, terminate/2]).
 
@@ -17,6 +17,10 @@ append(Ticks, DB) when is_pid(DB) orelse is_atom(DB) ->
 read(Name, Query, DB) ->
   gen_server:call(DB, {read, Name, Query}).
 
+stop(DB) ->
+  gen_server:call(DB, stop).
+
+
 -record(worker, {
   db
 }).
@@ -32,7 +36,10 @@ handle_call({append, Ticks}, _, #worker{db = DB} = W) ->
 
 handle_call({read, Name, Query}, _, #worker{db = DB} = W) ->
   {ok, Ticks, DB2} = pulsedb:read(Name, Query, DB),
-  {reply, {ok, Ticks, self()}, W#worker{db = DB2}}.
+  {reply, {ok, Ticks, self()}, W#worker{db = DB2}};
+
+handle_call(stop, _, #worker{} = W) ->
+  {stop, normal, ok, W}.
 
 
 terminate(_,_) ->
