@@ -3,7 +3,7 @@
   {vsn, "0.1"},
   {registered, []},
   {applications, [kernel, stdlib]},
-  {mod, {stockdb_app, []}},
+  {mod, {pulsedb_app, []}},
   {env, [{ticks_per_hour,60}]}
 ]}.
 

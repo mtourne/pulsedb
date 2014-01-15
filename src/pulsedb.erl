@@ -9,6 +9,10 @@
 -export([open/1, open/2, append/2, read/3, read/2, close/1]).
 -export([info/1, parse_query/1]).
 
+-export([collect/3]).
+-export([current_second/0, current_minute/0]).
+
+
 
 -spec open(Path::file:filename()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
 open(Path) ->
@@ -32,7 +36,7 @@ append(Ticks0, DB) ->
   if
     is_pid(DB) -> 
       pulsedb_worker:append(Ticks, DB);
-    is_tuple(DB) -> 
+    is_tuple(DB) ->
       Module = element(2,DB),
       Module:append(Ticks, DB)
   end.
@@ -79,6 +83,7 @@ read(Name, Query, DB) ->
   Query1 = clean_query(Query),
   if
     is_pid(DB) -> pulsedb_worker:read(Name, Query1, DB);
+    DB == seconds orelse DB == minutes -> pulsedb_memory:read(Name, Query1, DB);
     is_tuple(DB) -> pulsedb_disk:read(Name, Query1, DB)
   end.
 
@@ -107,6 +112,9 @@ to_b(Atom) when is_atom(Atom) -> atom_to_binary(Atom, latin1);
 to_b(Bin) when is_binary(Bin) -> Bin.
 
 
+
+collect(_Name, _Module, _Args) ->
+  ok.
 
 
 % -spec merge([pulsedb:tick()], pulsedb:db()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
@@ -139,5 +147,26 @@ info(Path) ->
   Info.
 
 
+
+
+
+%%
+%% Here goes common API
+
+-spec current_second() -> {Number::non_neg_integer(), DelayTillNextSecond::non_neg_integer()}.
+current_second() ->
+  {Mega, Sec, Micro} = os:timestamp(),
+  Milli = Micro div 1000,
+  Delay = 500 + 1000 - Milli,
+  {Mega*1000000 + Sec, Delay}.
+
+
+-spec current_minute() -> {Number::non_neg_integer(), DelayTillNext::non_neg_integer()}.
+current_minute() ->
+  {Mega, Sec, Micro} = os:timestamp(),
+  Milli = Micro div 1000,
+  Second = Mega*1000000 + Sec,
+  Delay = (90 - (Second rem 60))*1000 + Milli,
+  {Second, Delay}.
 
 

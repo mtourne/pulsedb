@@ -9,6 +9,7 @@ stop() ->
 
 init([]) ->
   Supervisors = [
+    {pulsedb_memory, {pulsedb_memory, start_link, []}, permanent, 100, worker, []},
     {pulsedb_repeater, {pulsedb_repeater, start_link, []}, permanent, 100, worker, []}
   ],
   {ok, {{one_for_one, 10, 10}, Supervisors}}.

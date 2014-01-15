@@ -36,6 +36,8 @@
 
 -export([open/1, append/2, read/3, close/1]).
 -export([info/1]).
+
+-export([metric_name/2, metric_fits_query/2, aggregate/2]).
 % -export([write_events/3]).
 
 
@@ -161,7 +163,7 @@ source_name(Name, Tags, #disk_db{cached_source_names = SourceNames} = DB) ->
     {_, SourceName} -> 
       {SourceName, DB};
     false ->
-      SourceName = iolist_to_binary([Name, [[":",K,"=",V] ||  {K,V} <- lists:sort(Tags)]]),
+      SourceName = metric_name(Name, Tags),
       {SourceName, DB#disk_db{cached_source_names = [{{Name,Tags},SourceName}|SourceNames]}}
   end.
 
@@ -216,6 +218,9 @@ decode_config(<<>>, _, _) ->
   [].
 
 
+
+metric_name(Name, Tags) ->
+ iolist_to_binary([Name, [[":",K,"=",V] ||  {K,V} <- lists:sort(Tags)]]).
 
 
 
@@ -335,14 +340,7 @@ read0(Name, Query, #disk_db{config_fd = undefined, date = Date} = DB) when Date 
 
 read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mode = read} = DB) when Date =/= undefined ->
 
-  Tags = [{K,V} || {K,V} <- Query, K =/= from andalso K =/= to andalso K =/= aggregator],
-
-  Aggegator = case proplists:get_value(aggregator,Query,<<"sum">>) of
-    <<"sum">> -> fun sum/1;
-    <<"avg">> -> fun avg/1;
-    <<"max">> -> fun max/1;
-    Else -> error({unknown_aggregator,Else})
-  end,
+  Tags = [{K,V} || {K,V} <- Query, is_binary(K)],
 
   ReadSources = select_sources(Name, Tags, Sources),
 
@@ -358,17 +356,20 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
     end
   end, ReadSources),
   Ticks2 = lists:sort(Ticks1),
-  Ticks3 = aggregate(Aggegator, Ticks2),
+  Ticks3 = aggregate(proplists:get_value(aggregator,Query), Ticks2),
   {ok, Ticks3, DB}.
+
+
+metric_fits_query(Query, Tags) ->
+  [] == [K || {K,V} <- Query, proplists:get_value(K,Tags) =/= V].
 
 
 
 select_sources(_Name, _Tags, []) ->
   [];
 select_sources(Name, Tags, [#source{original_name = Name, original_tags = Tags1} = S|Sources]) ->
-  BadTags = [K || {K,V} <- Tags, proplists:get_value(K,Tags1) =/= V],
-  case BadTags of
-    [] -> [S|select_sources(Name, Tags, Sources)];
+  case metric_fits_query(Tags, Tags1) of
+    true -> [S|select_sources(Name, Tags, Sources)];
     _ -> select_sources(Name, Tags, Sources)
   end;
 
@@ -376,7 +377,14 @@ select_sources(Name, Tags, [_|Sources]) ->
   select_sources(Name, Tags, Sources).
 
 
-aggregate(Agg, Ticks) ->
+aggregate(Aggegator, Ticks) ->
+  Agg = case Aggegator of
+    undefined -> fun sum/1;
+    <<"sum">> -> fun sum/1;
+    <<"avg">> -> fun avg/1;
+    <<"max">> -> fun max/1;
+    Else -> error({unknown_aggregator,Else})
+  end,
   aggregate(Agg, Ticks, undefined, []).
 
 
