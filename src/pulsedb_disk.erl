@@ -4,28 +4,62 @@
 -include("pulsedb.hrl").
 
 
+-record(source, {
+  id :: non_neg_integer(),
+  name :: source_name(),
+  original_name :: source_name(),
+  original_tags :: list(),
+  data_offset :: non_neg_integer(),
+  data_offset_ptr :: non_neg_integer(),
+  start_of_block :: non_neg_integer(),
+  end_of_block :: non_neg_integer()
+}).
+
+-type source() :: #source{}.
+
+
+
+-record(disk_db, {
+  storage = pulsedb_disk,
+  path :: file:filename(),
+  date :: binary() | undefined,
+  sources :: [source()],
+  cached_source_names = [],
+
+  mode :: undefined | read | append,
+
+  config_fd :: file:fd(),
+  data_fd :: file:fd()
+}).
+
+
+
 -export([open/1, append/2, read/3, close/1]).
 -export([info/1]).
 % -export([write_events/3]).
 
 
 -spec open(Path::file:filename()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
+open(Path) when is_list(Path) ->
+  open(iolist_to_binary(Path));
+open(<<"file://", Path/binary>>) ->
+  open(Path);
 open(Path) ->
-  {ok, #db{path = Path}}.
+  {ok, #disk_db{path = Path}}.
 
 
-open0(#db{path = Path, config_fd = undefined, date = Date} = DB, Mode) when Date =/= undefined ->
+open0(#disk_db{path = Path, config_fd = undefined, date = Date} = DB, Mode) when Date =/= undefined ->
   case filelib:is_regular(filename:join([Path,Date,config_v3])) of
     true ->
-      open_existing_db(DB#db{mode = Mode});
+      open_existing_db(DB#disk_db{mode = Mode});
     false when Mode == read ->
-      DB#db{mode = read};
+      DB#disk_db{mode = read};
     false when Mode == append ->
-      create_new_db(DB#db{mode = append})
+      create_new_db(DB#disk_db{mode = append})
   end.
 
 
-create_new_db(#db{path = Path, date = Date, mode = append} = DB) when Date =/= undefined ->
+create_new_db(#disk_db{path = Path, date = Date, mode = append} = DB) when Date =/= undefined ->
   ConfigPath = filename:join([Path, Date, config_v3]),
   DataPath = filename:join([Path, Date, data_v3]),
 
@@ -43,7 +77,7 @@ create_new_db(#db{path = Path, date = Date, mode = append} = DB) when Date =/= u
 
   {ok, DataFd} = file:open(DataPath, Opts),
 
-  DB#db{path = Path, config_fd = ConfigFd, data_fd = DataFd, sources = []}.
+  DB#disk_db{path = Path, config_fd = ConfigFd, data_fd = DataFd, sources = []}.
 
 
 read_file(Path) ->
@@ -52,13 +86,13 @@ read_file(Path) ->
     {error, _} -> <<>>
   end.
 
-open_existing_db(#db{path = Path, date = Date, mode = Mode} = DB) when Date =/= undefined, Mode =/= undefined ->
+open_existing_db(#disk_db{path = Path, date = Date, mode = Mode} = DB) when Date =/= undefined, Mode =/= undefined ->
   ConfigPath = filename:join([Path, Date, config_v3]),
   DataPath = filename:join([Path, Date, data_v3]),
 
-  DB1 = case DB#db.sources of
+  DB1 = case DB#disk_db.sources of
     undefined ->
-      DB#db{sources = decode_config(read_file(ConfigPath))};
+      DB#disk_db{sources = decode_config(read_file(ConfigPath))};
     _ ->
       DB
   end,
@@ -71,7 +105,7 @@ open_existing_db(#db{path = Path, date = Date, mode = Mode} = DB) when Date =/= 
   {ok, ConfigFd} = file:open(ConfigPath, Opts),
   {ok, DataFd} = file:open(DataPath, Opts),
 
-  DB1#db{config_fd = ConfigFd, data_fd = DataFd}.
+  DB1#disk_db{config_fd = ConfigFd, data_fd = DataFd}.
 
 
 
@@ -79,35 +113,42 @@ open_existing_db(#db{path = Path, date = Date, mode = Mode} = DB) when Date =/= 
 
 -spec append(pulsedb:tick() | [pulsedb:tick()], pulsedb:db()) -> pulsedb:db().
 
-append([{_,_,_,_} = Tick|Ticks], #db{} = DB) ->
+append([{_,_,_,_} = Tick|Ticks], #disk_db{} = DB) ->
   {ok, DB1} = append(Tick, DB),
   append(Ticks, DB1);
 
-append([], #db{} = DB) ->
+append([], #disk_db{} = DB) ->
   {ok, DB};
 
-append(_, #db{mode = read, path = Path}) ->
+append(_, #disk_db{mode = read, path = Path}) ->
   error({need_to_reopen_pulsedb_for_append,Path});
 
-append({Name, UTC, Value, _Tags} = T, #db{}) when not is_binary(Name); not is_integer(UTC); not is_integer(Value) ->
+append({Name, UTC, Value, _Tags} = T, #disk_db{}) when not is_binary(Name); not is_integer(UTC); not is_integer(Value) ->
   error({invalid_tick, T});
 
-append({_Name, UTC, _Value, _Tags} = Tick, #db{config_fd = undefined, date = undefined} = DB) ->
-  append(Tick, open0(DB#db{date = pulsedb_time:date_path(UTC)}, append));
+append({_Name, UTC, _Value, _Tags} = Tick, #disk_db{config_fd = undefined, date = undefined} = DB) ->
+  append(Tick, open0(DB#disk_db{date = pulsedb_time:date_path(UTC)}, append));
 
-append(Tick, #db{mode = append} = DB) ->
-  {ok, DB1} = append0(Tick, DB),
+append({_, UTC, _, _} = Tick, #disk_db{mode = append, date = Date} = DB) ->
+  UTCDate = pulsedb_time:date_path(UTC),
+  {ok, DB1} = if
+    Date == undefined orelse UTCDate == Date -> 
+      append0(Tick, DB);
+    true ->
+      {ok, DB_} = close(DB),
+      append(Tick, DB_)
+  end,
   {ok, DB1}.
 
 
 
-append0({Name, UTC, Value, Tags}, #db{} = DB) ->
+append0({Name, UTC, Value, Tags}, #disk_db{} = DB) ->
   {ok, SourceId, DB1} = find_or_open_source(Name, Tags, DB),
   {ok, DB2} = append_data(SourceId, UTC, Value, DB1),
   {ok, DB2}.
 
 
-find_or_open_source(Name, Tags, #db{sources = S} = DB) ->
+find_or_open_source(Name, Tags, #disk_db{sources = S} = DB) ->
   {SourceName, DB1} = source_name(Name, Tags, DB),
   case lists:keyfind(SourceName, #source.name, S) of
     false -> append_new_source(SourceName, Name, Tags, DB1);
@@ -115,18 +156,18 @@ find_or_open_source(Name, Tags, #db{sources = S} = DB) ->
   end.
 
 
-source_name(Name, Tags, #db{cached_source_names = SourceNames} = DB) ->
+source_name(Name, Tags, #disk_db{cached_source_names = SourceNames} = DB) ->
   case lists:keyfind({Name,Tags}, 1, SourceNames) of
     {_, SourceName} -> 
       {SourceName, DB};
     false ->
       SourceName = iolist_to_binary([Name, [[":",atom_to_binary(K,latin1),"=",V] ||  {K,V} <- lists:sort(Tags)]]),
-      {SourceName, DB#db{cached_source_names = [{{Name,Tags},SourceName}|SourceNames]}}
+      {SourceName, DB#disk_db{cached_source_names = [{{Name,Tags},SourceName}|SourceNames]}}
   end.
 
 
 
-append_new_source(SourceName, Name, Tags, #db{sources = Sources, config_fd = ConfigFd} = DB) ->
+append_new_source(SourceName, Name, Tags, #disk_db{sources = Sources, config_fd = ConfigFd} = DB) ->
   Begin = case Sources of
     [] -> 0;
     _ -> 
@@ -143,7 +184,7 @@ append_new_source(SourceName, Name, Tags, #db{sources = Sources, config_fd = Con
     data_offset = Begin, data_offset_ptr = ConfigPos + 3},
   Bin = encode_config(Source),
   ok = file:pwrite(ConfigFd, ConfigPos, Bin),
-  {ok, Source#source.id, DB#db{sources = Sources ++ [Source]}}.
+  {ok, Source#source.id, DB#disk_db{sources = Sources ++ [Source]}}.
 
 
 -define(CONFIG_SOURCE, 2).
@@ -178,7 +219,7 @@ decode_config(<<>>, _, _) ->
 
 
 
-append_data(SourceId, UTC, Value, #db{data_fd = DataFd, config_fd = ConfigFd, sources = Sources} = DB) ->
+append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd, config_fd = ConfigFd, sources = Sources} = DB) ->
   #source{data_offset = Offset, data_offset_ptr = ConfigPtr, end_of_block = EOF} = Source =
     lists:keyfind(SourceId,#source.id,Sources),
 
@@ -189,7 +230,7 @@ append_data(SourceId, UTC, Value, #db{data_fd = DataFd, config_fd = ConfigFd, so
       NewDataOffset = Offset + iolist_size(Block),
       file:pwrite(ConfigFd, ConfigPtr, <<NewDataOffset:32>>),
       Sources1 = lists:keystore(SourceId,#source.id, Sources, Source#source{data_offset = NewDataOffset}),
-      {ok, DB#db{sources = Sources1}};
+      {ok, DB#disk_db{sources = Sources1}};
     false ->
       {ok, DB}
   end.
@@ -198,14 +239,14 @@ append_data(SourceId, UTC, Value, #db{data_fd = DataFd, config_fd = ConfigFd, so
 
 
 
-info(#db{sources = Sources}) when is_list(Sources) ->
+info(#disk_db{sources = Sources}) when is_list(Sources) ->
   Src = [{Name,Tags} || #source{original_name = Name, original_tags = Tags} <- Sources],
   [{sources,Src}];
 
-info(#db{path = Path} = DB) ->
+info(#disk_db{path = Path} = DB) ->
   case last_day(Path) of
     undefined -> [];
-    DayPath -> info(DB#db{sources = decode_config(read_file(filename:join(DayPath,config_v3)))})
+    DayPath -> info(DB#disk_db{sources = decode_config(read_file(filename:join(DayPath,config_v3)))})
   end.
 
 
@@ -241,19 +282,56 @@ last_day0(F, Path) ->
 
 -spec read(Name::source_name(), Query::[{atom(),any()}], pulsedb:db()) -> {ok, [tick()], pulsedb:db()} | {error, Reason::any()}.
 
-read(_Name, _Query, #db{mode = append}) ->
-  {error, need_to_reopen_for_read};
+% read(_Name, _Query, #disk_db{mode = append}) ->
+%   {error, need_to_reopen_for_read};
 
-read(Name, Query, #db{config_fd = undefined, date = Date} = DB) when Date =/= undefined ->
+read(Name, Query, #disk_db{path = Path, date = Date} = DB) ->
+  RequiredDates = required_dates(Query),
+  case load_ticks(RequiredDates, Name, Query, #disk_db{path = Path, date = Date}) of
+    {ok, Ticks, _DB1} ->
+      {ok, Ticks, DB};
+    {error, _} = Error ->
+      Error
+  end.
+
+
+
+required_dates(Query) ->
+  {from,From} = lists:keyfind(from,1,Query),
+  {to,To} = lists:keyfind(to,1,Query),
+  [pulsedb_time:date_path(T) || T <- lists:seq(From,To,86400)].
+
+
+load_ticks([], _Name, _Query, DB) ->
+  {ok, [], DB};
+
+load_ticks([Date|Dates], Name, Query, #disk_db{} = DB) ->
+  case read0(Name, Query, DB#disk_db{date = Date}) of
+    {ok, Ticks1, DB1} ->
+      {ok, DB2} = close(DB1),
+      case load_ticks(Dates, Name, Query, DB2) of
+        {ok, Ticks2, DB3} ->
+          {ok, Ticks1++Ticks2, DB3};
+        {error, _} = Error ->
+          Error
+      end;        
+    {error, _} = Error ->
+      Error
+  end.
+
+
+
+
+
+read0(Name, Query, #disk_db{config_fd = undefined, date = Date} = DB) when Date =/= undefined ->
   case open0(DB, read) of
-    #db{config_fd = undefined} = DB1 ->
+    #disk_db{config_fd = undefined} = DB1 ->
       {ok, [], DB1};
-    #db{} = DB1 ->
-      read(Name, Query, DB1)
+    #disk_db{} = DB1 ->
+      read0(Name, Query, DB1)
   end;
 
-read(Name, Query0, #db{sources = Sources, data_fd = DataFd, date = Date, mode = read} = DB) when Date =/= undefined ->
-  Query = pulsedb:parse_query(Query0),
+read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mode = read} = DB) when Date =/= undefined ->
   Tags = [{K,V} || {K,V} <- Query, K =/= from andalso K =/= to],
   ReadSources = select_sources(Name, Tags, Sources),
 
@@ -309,10 +387,10 @@ filter_ticks([Tick|Ticks], From, To) ->
 
 
 -spec close(pulsedb:db()) -> {pulsedb:db()}.
-close(#db{config_fd = C, data_fd = D} = DB) ->
+close(#disk_db{config_fd = C, data_fd = D} = DB) ->
   file:close(C),
   file:close(D),
-  {ok, DB#db{config_fd = undefined, data_fd = undefined, 
+  {ok, DB#disk_db{config_fd = undefined, data_fd = undefined, 
     date = undefined, sources = undefined}}.
 
 

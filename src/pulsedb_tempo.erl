@@ -1,5 +1,15 @@
 -module(pulsedb_tempo).
 -include("pulsedb.hrl").
+
+
+-record(tempodb, {
+  storage = pulsedb_tempo,
+  url,
+  auth
+}).
+
+
+
 -export([open/1, append/2, read/3, close/1]).
 
 -define(TIMEOUT, 10000).

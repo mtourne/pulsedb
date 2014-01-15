@@ -10,6 +10,7 @@ all() ->
 groups() ->
   [{append_and_read, [parallel], [
     append_and_read,
+    worker_append_and_read,
     % forbid_to_read_after_append,
     % forbid_to_append_after_read,
     % merge,
@@ -96,6 +97,55 @@ append_and_read(_) ->
   % {ok, R1} = pulsedb:open("test/v2/pulse_rw"),
   % {ok, Ticks2, R2} = pulsedb:read([{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-04"}], R1),
   % pulsedb:close(R2).
+  ok.
+
+
+
+worker_append_and_read(_) ->
+  {ok, DB1} = pulsedb:open(worker_ar, [{url, "file://test/v3/worker_rw"}]),
+
+  Ticks1 = [
+    {<<"input">>, 120, 5, [{name, <<"source1">>}]},
+    {<<"input">>, 120, 2, [{name, <<"source2">>}]},
+    {<<"input">>, 130, 10, [{name, <<"source1">>}]},
+    {<<"input">>, 140, 3, [{name, <<"source1">>}]}
+  ],
+  pulsedb:append(Ticks1, DB1),
+
+  Ticks2 = [
+    {<<"input">>, 4000121, 5, [{name, <<"source1">>}]},
+    {<<"input">>, 4000122, 10, [{name, <<"source1">>}]},
+    {<<"input">>, 4000122, 4, [{name, <<"source2">>}]},
+    {<<"input">>, 4000123, 3, [{name, <<"source1">>}]}
+  ],
+  pulsedb:append(Ticks2, DB1),
+
+  {ok, [
+    {120,5},
+    {130,10},
+    {140,3},
+    {4000121,5},
+    {4000122,10},
+    {4000123,3}
+  ], _} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1971-02-02"}], DB1),
+
+
+  {ok, [
+    {120,5},
+    {130,10},
+    {140,3}
+  ], _} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], DB1),
+
+  {ok, [
+    {120,7},
+    {130,10},
+    {140,3},
+    {4000121,5},
+    {4000122,14},
+    {4000123,3}
+  ], _} = pulsedb:read(<<"input">>, [{from, "1970-01-01"},{to,"1971-01-02"}], DB1),
+
+  os:cmd("rm -rf test/v3/worker_rw/1970/01/01"),
   ok.
 
 
