@@ -59,7 +59,32 @@ read_and_write_from_memory(_) ->
   {ok, [
     {_,7}
   ], _} = pulsedb:read("sum:input{from="++integer_to_list(T1-120)++",to="++integer_to_list(T1+60)++",name=src1}", minutes),
+
+
+  pulsedb_memory:append([
+    {<<"input">>, T-3600, 10, [{<<"name">>,<<"src1">>}]}
+  ], seconds),
+
+  {ok, [
+    {_,10}
+  ], _} = pulsedb:read("sum:input{from="++integer_to_list(T-3620)++",to="++integer_to_list(T-3500)++"}", seconds),
+
+  whereis(pulsedb_memory) ! clean,
+  sys:get_state(pulsedb_memory),
+
+  {ok, [
+  ], _} = pulsedb:read("sum:input{from="++integer_to_list(T-3620)++",to="++integer_to_list(T-3500)++"}", seconds),
+
   ok.
+
+
+
+
+
+
+
+
+
 
 
 
