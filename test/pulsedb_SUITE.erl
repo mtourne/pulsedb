@@ -106,7 +106,7 @@ worker_append_and_read(_) ->
   {ok, DB1} = pulsedb:open(worker_ar, [{url, "file://test/v3/worker_rw"}]),
 
   Ticks1 = [
-    {<<"input">>, 120, 5, [{name, <<"source1">>}]},
+    {<<"input">>, 120, 6, [{name, <<"source1">>}]},
     {<<"input">>, 120, 2, [{name, <<"source2">>}]},
     {<<"input">>, 130, 10, [{name, <<"source1">>}]},
     {<<"input">>, 140, 3, [{name, <<"source1">>}]}
@@ -122,7 +122,7 @@ worker_append_and_read(_) ->
   pulsedb:append(Ticks2, DB1),
 
   {ok, [
-    {120,5},
+    {120,6},
     {130,10},
     {140,3},
     {4000121,5},
@@ -132,13 +132,13 @@ worker_append_and_read(_) ->
 
 
   {ok, [
-    {120,5},
+    {120,6},
     {130,10},
     {140,3}
   ], _} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], DB1),
 
   {ok, [
-    {120,7},
+    {120,8},
     {130,10},
     {140,3},
     {4000121,5},
@@ -148,10 +148,28 @@ worker_append_and_read(_) ->
 
 
   {ok, [
-    {120,5},
+    {120,6},
     {130,10},
     {140,3}
   ], _} = pulsedb:read(<<"sum:input{name=source1,from=1970-01-01,to=1970-01-02}">>, DB1),
+
+  {ok, [
+    {120,8},
+    {130,10},
+    {140,3}
+  ], _} = pulsedb:read(<<"sum:input{from=1970-01-01,to=1970-01-02}">>, DB1),
+
+  {ok, [
+    {120,6},
+    {130,10},
+    {140,3}
+  ], _} = pulsedb:read(<<"max:input{from=1970-01-01,to=1970-01-02}">>, DB1),
+
+  {ok, [
+    {120,4},
+    {130,10},
+    {140,3}
+  ], _} = pulsedb:read(<<"avg:input{from=1970-01-01,to=1970-01-02}">>, DB1),
 
   pulsedb:close(DB1),
 

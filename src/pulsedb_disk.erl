@@ -334,7 +334,16 @@ read0(Name, Query, #disk_db{config_fd = undefined, date = Date} = DB) when Date 
   end;
 
 read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mode = read} = DB) when Date =/= undefined ->
+
   Tags = [{K,V} || {K,V} <- Query, K =/= from andalso K =/= to andalso K =/= aggregator],
+
+  Aggegator = case proplists:get_value(aggregator,Query,<<"sum">>) of
+    <<"sum">> -> fun sum/1;
+    <<"avg">> -> fun avg/1;
+    <<"max">> -> fun max/1;
+    Else -> error({unknown_aggregator,Else})
+  end,
+
   ReadSources = select_sources(Name, Tags, Sources),
 
   Ticks1 = lists:flatmap(fun(#source{start_of_block = Start, data_offset = Offset}) ->
@@ -349,7 +358,7 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
     end
   end, ReadSources),
   Ticks2 = lists:sort(Ticks1),
-  Ticks3 = aggregate(Ticks2),
+  Ticks3 = aggregate(Aggegator, Ticks2),
   {ok, Ticks3, DB}.
 
 
@@ -367,9 +376,26 @@ select_sources(Name, Tags, [_|Sources]) ->
   select_sources(Name, Tags, Sources).
 
 
-aggregate([{UTC,V1},{UTC,V2}|Ticks]) -> aggregate([{UTC,V1+V2}|Ticks]);
-aggregate([{UTC,V}|Ticks]) -> [{UTC,V}|aggregate(Ticks)];
-aggregate([]) -> [].
+aggregate(Agg, Ticks) ->
+  aggregate(Agg, Ticks, undefined, []).
+
+
+aggregate(_Agg, [], undefined, []) ->
+  [];
+aggregate(Agg, [], UTC, Acc) -> [{UTC,Agg(Acc)}];
+aggregate(Agg, [{UTC,V1}|Ticks], undefined, []) -> aggregate(Agg, Ticks, UTC, [V1]);
+aggregate(Agg, [{UTC,V1}|Ticks], UTC, Acc) -> aggregate(Agg, Ticks, UTC, [V1|Acc]);
+aggregate(Agg, [{UTC2,V1}|Ticks], UTC1, Acc) -> 
+  [{UTC1,Agg(Acc)}|aggregate(Agg, Ticks, UTC2, [V1])].
+
+
+sum(Acc) -> lists:sum(Acc).
+
+avg([]) -> 0;
+avg(Acc) -> lists:sum(Acc) div length(Acc).
+
+max([]) -> 0;
+max(Acc) -> lists:max(Acc).
 
 
 
