@@ -26,6 +26,7 @@ init([]) ->
   Supervisors = [
     {pulsedb_memory, {pulsedb_memory, start_link, []}, permanent, 100, worker, []},
     {pulsedb_collectors, {supervisor, start_link, [{local,pulsedb_collectors}, ?MODULE, [pulsedb_collectors]]}, permanent, infinity, supervisor, []},
-    {pulsedb_repeater, {pulsedb_repeater, start_link, []}, permanent, 100, worker, []}
+    {pulsedb_repeater, {pulsedb_repeater, start_link, []}, permanent, 100, worker, []},
+    {pulsedb_realtime, {pulsedb_realtime, start_link, []}, permanent, 100, worker, []}
   ],
   {ok, {{one_for_one, 10, 10}, Supervisors}}.
