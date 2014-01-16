@@ -13,6 +13,7 @@ groups() ->
     worker_append_and_read,
     parse_query,
     collector,
+    collector_with_backend,
     % forbid_to_read_after_append,
     % forbid_to_append_after_read,
     % merge,
@@ -267,19 +268,40 @@ parse_query(_) ->
 
 
 
-pulse_init(test_collect) -> {ok, 20}.
-pulse_collect(N) -> {reply, [{test1, N, [{tag1,<<"value1">>}]}], N}.
+pulse_init(State) -> {ok, State}.
+pulse_collect({Name,Val} = State) -> {reply, [{Name, Val, [{tag1,<<"value1">>}]}], State}.
 
 
 collector(_) ->
   {ok, [], _} = pulsedb:read(<<"max:test1">>, seconds),
-  {ok, Pid} = pulsedb:collect(<<"test_collector">>, ?MODULE, test_collect),
+  {ok, Pid} = pulsedb:collect(<<"test_collector">>, ?MODULE, {test1,20}),
   Pid ! collect,
   sys:get_state(Pid),
   {ok, [{_,20}], _} = pulsedb:read(<<"max:test1">>, seconds),
   {ok, [{_,20}], _} = pulsedb:read(<<"max:test1{tag1=value1}">>, seconds),
   ok.
 
+
+
+collector_with_backend(_) ->
+  {ok, Pid0} = pulsedb:open(test_pulse_saver1, [{url, "file://test/test_pulse_saver1"}]),
+
+  {Now,_} = pulsedb:current_second(),
+  N1 = integer_to_list(Now - 60),
+  N2 = integer_to_list(Now + 60),
+  Range = "from="++N1++",to="++N2,
+
+  {ok, [], _} = pulsedb:read(<<"max:test2">>, seconds),
+  {ok, [], _} = pulsedb:read("max:test2{"++Range++"}", test_pulse_saver1),
+  {ok, Pid} = pulsedb:collect(<<"test_collector2">>, ?MODULE, {test2,40}, [{copy, test_pulse_saver1}]),
+  Pid ! collect,
+  sys:get_state(Pid),
+  {ok, [{_,40}], _} = pulsedb:read(<<"max:test2">>, seconds),
+  {ok, [{_,40}], _} = pulsedb:read(<<"max:test2{tag1=value1}">>, seconds),
+
+  {ok, [{_,40}], _} = pulsedb:read("sum:test2{"++Range++"}", test_pulse_saver1),
+  {ok, [{_,40}], _} = pulsedb:read("sum:test2{tag1=value1,"++Range++"}", test_pulse_saver1),
+  ok.
 
 
 % merge(_) ->

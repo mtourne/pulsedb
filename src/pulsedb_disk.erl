@@ -290,7 +290,6 @@ last_day0(F, Path) ->
 %   {error, need_to_reopen_for_read};
 
 read(Name, Query, #disk_db{path = Path, date = Date} = DB) ->
-  % ct:pal("query: ~p ~p", [Name, Query]),
   RequiredDates = required_dates(Query),
   case load_ticks(RequiredDates, Name, Query, #disk_db{path = Path, date = Date}) of
     {ok, Ticks, DB1} ->

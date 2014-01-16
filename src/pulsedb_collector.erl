@@ -1,5 +1,5 @@
 -module(pulsedb_collector).
--export([start_link/3]).
+-export([start_link/4]).
 -export([stop/1]).
 -export([list/0]).
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
@@ -27,8 +27,8 @@ list() ->
 
 
 
-start_link(Name, Module, Args) ->
-  gen_server:start_link(?MODULE, [Name, Module, Args], []).
+start_link(Name, Module, Args, Options) ->
+  gen_server:start_link(?MODULE, [Name, Module, Args, Options], []).
 
 
 
@@ -54,6 +54,7 @@ stop(Name) ->
 -record(collect, {
   name :: pulsedb:name(),
   collect_timer = undefined :: undefined | term(),
+  copy_to,
   flush_timer :: term(),
   module = undefined :: undefined | atom(),
   known_metrics = [],
@@ -61,7 +62,7 @@ stop(Name) ->
 }).
 
 
-init([Name, Module, Args]) ->
+init([Name, Module, Args, Options]) ->
   {_, FlushDelay} = pulsedb:current_minute(),
   FlushTimer = erlang:send_after(FlushDelay, self(), flush),
 
@@ -81,7 +82,8 @@ init([Name, Module, Args]) ->
   {_, CollectDelay} = pulsedb:current_second(),
   CollectTimer = erlang:send_after(CollectDelay, self(), collect),
   ets:insert(pulsedb_collectors, #collect_config{name = Name}),
-  {ok, #collect{name = Name, flush_timer = FlushTimer,
+  Copy = proplists:get_value(copy, Options),
+  {ok, #collect{name = Name, flush_timer = FlushTimer, copy_to = Copy,
     collect_timer = CollectTimer, module = Module, state = State}}.
 
 
@@ -92,7 +94,7 @@ handle_call(Call, _, #collect{} = C) ->
 
 
 
-handle_info(collect, #collect{state = State,
+handle_info(collect, #collect{state = State, copy_to = Copy,
   collect_timer = OldTimer, module = Module, known_metrics = KnownMetrics} = Flow) ->
   erlang:cancel_timer(OldTimer),
   {UTC, CollectDelay} = pulsedb:current_second(),
@@ -100,8 +102,11 @@ handle_info(collect, #collect{state = State,
   {reply, Values, State1} = Module:pulse_collect(State),
   Ticks = [{to_b(Name),UTC,Value,[{to_b(K),to_b(V)} || {K,V} <- Tags]} || {Name,Value,Tags} <- Values],
 
-  % FIXME: here we save data from pulsedb_collector _only_ to memory
   pulsedb_memory:append(Ticks, seconds),
+  case Copy of
+    undefined -> ok;
+    _ -> pulsedb:append(Ticks, Copy)
+  end,
 
   Metrics = lists:foldl(fun({Name,_,_,Tags}, List) ->
     case lists:keyfind({Name,Tags},1,List) of

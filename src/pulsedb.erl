@@ -9,7 +9,7 @@
 -export([open/1, open/2, append/2, read/3, read/2, close/1]).
 -export([info/1, parse_query/1]).
 
--export([collect/3]).
+-export([collect/3, collect/4]).
 -export([current_second/0, current_minute/0]).
 
 
@@ -36,6 +36,10 @@ append(Ticks0, DB) ->
   if
     is_pid(DB) -> 
       pulsedb_worker:append(Ticks, DB);
+    DB == seconds orelse DB == minutes ->
+      pulsedb_memory:append(Ticks, DB);
+    is_atom(DB) ->
+      pulsedb_worker:append(Ticks, DB);    
     is_tuple(DB) ->
       Module = element(2,DB),
       Module:append(Ticks, DB)
@@ -84,6 +88,7 @@ read(Name, Query, DB) ->
   if
     is_pid(DB) -> pulsedb_worker:read(Name, Query1, DB);
     DB == seconds orelse DB == minutes -> pulsedb_memory:read(Name, Query1, DB);
+    is_atom(DB) -> pulsedb_worker:read(Name, Query1, DB);
     is_tuple(DB) -> pulsedb_disk:read(Name, Query1, DB)
   end.
 
@@ -114,7 +119,10 @@ to_b(Bin) when is_binary(Bin) -> Bin.
 
 
 collect(Name, Module, Args) ->
-  pulsedb_sup:start_collector(Name, Module, Args).
+  collect(Name, Module, Args, []).
+
+collect(Name, Module, Args, Options) ->
+  pulsedb_sup:start_collector(Name, Module, Args, Options).
 
 
 % -spec merge([pulsedb:tick()], pulsedb:db()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
