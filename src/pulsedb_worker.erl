@@ -10,8 +10,14 @@ start_link(Name, Options) ->
   gen_server:start_link({local, Name}, ?MODULE, [Options], []).
 
 
-append(Ticks, DB) when is_pid(DB) orelse is_atom(DB) ->
-  gen_server:call(DB, {append, Ticks}).
+append(Ticks, DB) when is_pid(DB) ->
+  gen_server:call(DB, {append, Ticks});
+
+append(Ticks, DB) when is_atom(DB) ->
+  case whereis(DB) of
+    undefined -> ok;
+    Pid -> append(Ticks, Pid)
+  end.
 
 
 read(Name, Query, DB) ->

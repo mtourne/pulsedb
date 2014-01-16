@@ -14,6 +14,7 @@ groups() ->
     parse_query,
     collector,
     collector_with_backend,
+    collector_with_dead_backend,
     % forbid_to_read_after_append,
     % forbid_to_append_after_read,
     % merge,
@@ -302,6 +303,25 @@ collector_with_backend(_) ->
   {ok, [{_,40}], _} = pulsedb:read("sum:test2{"++Range++"}", test_pulse_saver1),
   {ok, [{_,40}], _} = pulsedb:read("sum:test2{tag1=value1,"++Range++"}", test_pulse_saver1),
   ok.
+
+
+
+
+collector_with_dead_backend(_) ->
+  {Now,_} = pulsedb:current_second(),
+  N1 = integer_to_list(Now - 60),
+  N2 = integer_to_list(Now + 60),
+  Range = "from="++N1++",to="++N2,
+
+  {ok, [], _} = pulsedb:read(<<"max:test3">>, seconds),
+  {ok, Pid} = pulsedb:collect(<<"test_collector3">>, ?MODULE, {test3,40}, [{copy, test_pulse_saver3}]),
+  Pid ! collect,
+  sys:get_state(Pid),
+  {ok, [{_,40}], _} = pulsedb:read(<<"max:test3">>, seconds),
+  {ok, [{_,40}], _} = pulsedb:read(<<"max:test3{tag1=value1}">>, seconds),
+
+  ok.
+
 
 
 % merge(_) ->
