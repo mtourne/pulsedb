@@ -65,7 +65,7 @@ init([Name, Module, Args]) ->
   {_, FlushDelay} = pulsedb:current_minute(),
   FlushTimer = erlang:send_after(FlushDelay, self(), flush),
 
-  put(name, {pulse_collector,Name,Module}),
+  put(name, {pulsedb_collector,Name,Module}),
 
   Module:module_info(),
 
@@ -104,7 +104,7 @@ handle_info(collect, #collect{state = State,
   pulsedb_memory:append(Ticks, seconds),
 
   Metrics = lists:foldl(fun({Name,_,Tags}, List) ->
-    case lists:keyfind({Name,Tags},List) of
+    case lists:keyfind({Name,Tags},1,List) of
       false -> [{{Name,Tags}, pulsedb_disk:metric_name(Name,Tags)}|List];
       _ -> List
     end
@@ -118,7 +118,7 @@ handle_info(flush, #collect{flush_timer = OldTimer, known_metrics = Metrics} = F
   erlang:cancel_timer(OldTimer),
   {UTC, FlushDelay} = pulsedb:current_minute(),
 
-
+  % FIXME: need to move minute aggregation to pulsedb_memory from here
   _Updates = pulsedb_memory:merge_seconds_data([ {Name,Tag} || {{Name,Tag},_} <- Metrics], UTC),
 
   % FIXME: send Updates to clients

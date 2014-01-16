@@ -75,6 +75,15 @@ read_and_write_from_memory(_) ->
   {ok, [
   ], _} = pulsedb:read("sum:input{from="++integer_to_list(T-3620)++",to="++integer_to_list(T-3500)++"}", seconds),
 
+
+  pulsedb_memory:append([
+    {<<"input">>, flu:now(), 40, [{<<"name">>,<<"src1">>}]}
+  ], seconds),
+
+  {ok, [
+    {_, 40}
+  ], _} = pulsedb:read("sum:input", seconds),
+
   ok.
 
 

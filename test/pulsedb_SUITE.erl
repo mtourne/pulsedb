@@ -12,6 +12,7 @@ groups() ->
     append_and_read,
     worker_append_and_read,
     parse_query,
+    collector,
     % forbid_to_read_after_append,
     % forbid_to_append_after_read,
     % merge,
@@ -21,7 +22,9 @@ groups() ->
 
 
 init_per_suite(Config) ->
+  application:load(pulsedb),
   application:set_env(pulsedb,ticks_per_hour,60000),
+  application:start(pulsedb),
   Config.
 
 
@@ -261,6 +264,21 @@ parse_query(_) ->
 
   {<<"cpu">>, <<"max">>, [{<<"host">>,<<"flu1">>},{from,<<"1970-01-01">>},{to,<<"456">>}]} = pulsedb:parse_query("max:cpu{host=flu1,from=1970-01-01,to=456}"),
   ok.
+
+
+
+pulse_init(test_collect) -> {ok, 20}.
+pulse_collect(N) -> {reply, [{<<"test1">>, N, []}], N}.
+
+
+collector(_) ->
+  {ok, [], _} = pulsedb:read(<<"max:test1">>, seconds),
+  {ok, Pid} = pulsedb:collect(<<"test_collector">>, ?MODULE, test_collect),
+  Pid ! collect,
+  sys:get_state(Pid),
+  {ok, [{_,20}], _} = pulsedb:read(<<"max:test1">>, seconds),
+  ok.
+
 
 
 % merge(_) ->

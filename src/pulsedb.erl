@@ -113,8 +113,8 @@ to_b(Bin) when is_binary(Bin) -> Bin.
 
 
 
-collect(_Name, _Module, _Args) ->
-  ok.
+collect(Name, Module, Args) ->
+  pulsedb_sup:start_collector(Name, Module, Args).
 
 
 % -spec merge([pulsedb:tick()], pulsedb:db()) -> {ok, pulsedb:db()} | {error, Reason::any()}.

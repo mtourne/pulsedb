@@ -59,11 +59,22 @@ read(Name, Query, DB) when DB == seconds orelse DB == minutes ->
     minutes -> pulsedb_minutes_data
   end,
 
-  {_, From_} = lists:keyfind(from, 1, Query),
-  {_, To_} = lists:keyfind(to, 1, Query),
   Step = case DB of
     seconds -> 1;
     minutes -> 60
+  end,
+
+
+  {Now,_} = pulsedb:current_second(),
+  From_ = case lists:keyfind(from, 1, Query) of
+    {_, From1_} -> From1_;
+    false when DB == seconds -> Now - 60;
+    false when DB == minutes -> Now - 4*3600
+  end,
+
+  To_ = case lists:keyfind(to, 1, Query) of
+    {_, To1_} -> To1_;
+    false -> Now
   end,
 
   From = (From_ div Step)*Step,
