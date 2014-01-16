@@ -36,6 +36,7 @@
 
 -export([open/1, append/2, read/3, close/1]).
 -export([info/1]).
+-export([delete_older/2]).
 
 -export([metric_name/2, metric_fits_query/2, aggregate/2]).
 % -export([write_events/3]).
@@ -53,7 +54,15 @@ open(Path) ->
 open0(#disk_db{path = Path, config_fd = undefined, date = Date} = DB, Mode) when Date =/= undefined ->
   case filelib:is_regular(filename:join([Path,Date,config_v3])) of
     true ->
-      open_existing_db(DB#disk_db{mode = Mode});
+      try open_existing_db(DB#disk_db{mode = Mode})
+      catch
+        Class:Error ->
+          Trace = erlang:get_stacktrace(),
+          lager:log(error,[{module,?MODULE},{line,?LINE}],"Error in pulsedb: ~p:~p, need to recover for date: ~p\n~p\n", [Class, Error, Date, Trace]),
+          file:delete(filename:join([Path,Date,config_v3])),
+          file:delete(filename:join([Path,Date,data_v3])),
+          erlang:raise(Class, Error, Trace)
+      end;
     false when Mode == read ->
       DB#disk_db{mode = read};
     false when Mode == append ->
@@ -131,11 +140,19 @@ append({Name, UTC, Value, _Tags} = T, #disk_db{}) when not is_binary(Name); not 
 append({_Name, UTC, _Value, _Tags} = Tick, #disk_db{config_fd = undefined, date = undefined} = DB) ->
   append(Tick, open0(DB#disk_db{date = pulsedb_time:date_path(UTC)}, append));
 
-append({_, UTC, _, _} = Tick, #disk_db{mode = append, date = Date} = DB) ->
+append({_, UTC, _, _} = Tick, #disk_db{mode = append, date = Date, path = Path} = DB) ->
   UTCDate = pulsedb_time:date_path(UTC),
   {ok, DB1} = if
     Date == undefined orelse UTCDate == Date -> 
-      append0(Tick, DB);
+      try append0(Tick, DB)
+      catch
+        Class:Error ->
+          Trace = erlang:get_stacktrace(),
+          lager:log(error,[{module,?MODULE},{line,?LINE}],"Error in pulsedb: ~p:~p, need to recover for date: ~s\n~p\n", [Class, Error, UTCDate, Trace]),
+          file:delete(filename:join([Path,UTCDate,config_v3])),
+          file:delete(filename:join([Path,UTCDate,data_v3])),
+          erlang:raise(Class, Error, Trace)
+      end;
     true ->
       {ok, DB_} = close(DB),
       append(Tick, DB_)
@@ -429,6 +446,22 @@ close(#disk_db{config_fd = C, data_fd = D} = DB) ->
 
 
 
+
+delete_older(Time, #disk_db{path = Path} = DB) ->
+  {Now, _} = pulsedb:current_second(),
+  GoodDate = binary_to_list(pulsedb_time:date_path(Now - Time)),
+  Dates = [Date || Date <- filelib:wildcard("*/*/*", binary_to_list(Path)), Date < GoodDate],
+
+  [begin
+    file:delete(filename:join([Path,Date,config_v3])),
+    file:delete(filename:join([Path,Date,data_v3])),
+    file:del_dir(filename:join(Path,Date)),
+    file:del_dir(filename:join(Path,filename:dirname(Date))),
+    file:del_dir(filename:join(Path,filename:dirname(filename:dirname(Date)))),
+    ok
+  end || Date <- Dates],
+
+  {ok, DB}.
 
 
 

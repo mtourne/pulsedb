@@ -11,10 +11,12 @@ groups() ->
   [{append_and_read, [parallel], [
     append_and_read,
     worker_append_and_read,
+    worker_cleanup,
     parse_query,
     collector,
     collector_with_backend,
     collector_with_dead_backend,
+    autohealing,
     % forbid_to_read_after_append,
     % forbid_to_append_after_read,
     % merge,
@@ -176,10 +178,35 @@ worker_append_and_read(_) ->
     {140,3}
   ], _} = pulsedb:read(<<"avg:input{from=1970-01-01,to=1970-01-02}">>, DB1),
 
+  {ok, [
+  ], _} = pulsedb:read(<<"avg:input">>, DB1),
+
+
+
   pulsedb:close(DB1),
 
   os:cmd("rm -rf test/v3/worker_rw/1970/01/01"),
   ok.
+
+
+worker_cleanup(_) ->
+  {ok, DB1} = pulsedb:open(worker_cleanup, [{url, "file://test/v3/worker_cleanup"},{delete_older,86400}]),
+
+  Ticks1 = [
+    {<<"input">>, 120, 5, [{name, <<"source1">>}]},
+    {<<"output">>, 120, 0, [{name, <<"source1">>}]}  
+  ],
+  pulsedb:append(Ticks1, worker_cleanup),
+
+  {ok, [{_,5}], _} = pulsedb:read("sum:input{from=0,to=1000}", worker_cleanup),
+
+  DB1 ! clean,
+  sys:get_state(DB1),
+
+  {ok, [], _} = pulsedb:read("sum:input{from=0,to=1000}", worker_cleanup),
+  ok.
+
+
 
 
 % forbid_to_read_after_append(_) ->
@@ -319,6 +346,34 @@ collector_with_dead_backend(_) ->
   sys:get_state(Pid),
   {ok, [{_,40}], _} = pulsedb:read(<<"max:test3">>, seconds),
   {ok, [{_,40}], _} = pulsedb:read(<<"max:test3{tag1=value1}">>, seconds),
+
+  ok.
+
+
+
+autohealing(_) ->
+  {ok, DB1} = pulsedb:open("test/v3/autohealing"),
+
+  Ticks1 = [
+    {<<"input">>, 120, 5, [{name, <<"source1">>}]},
+    {<<"output">>, 120, 0, [{name, <<"source1">>}]}  
+  ],
+  {ok, DB2} = pulsedb:append(Ticks1, DB1),
+  pulsedb:close(DB2),
+
+  {ok, [{_,5}], _} = pulsedb:read(<<"max:input{from=0,to=200}">>, DB2),
+
+
+  {ok, F} = file:open("test/v3/autohealing/1970/01/01/config_v3", [binary,write,raw]),
+  file:pwrite(F, 3, <<"zzzzzz">>),
+  file:close(F),
+
+
+  {ok, DB3} = pulsedb:open("test/v3/autohealing"),
+  catch pulsedb:append([{<<"input">>, 122, 4, [{name, <<"source1">>}]}], DB3),
+  {ok, DB4} = pulsedb:append([{<<"input">>, 123, 3, [{name, <<"source1">>}]}], DB3),
+
+  {ok, [{123,3}], _} = pulsedb:read(<<"max:input{from=0,to=200}">>, DB4),
 
   ok.
 
