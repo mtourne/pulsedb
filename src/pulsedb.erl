@@ -9,7 +9,7 @@
 -export([open/1, open/2, append/2, read/3, read/2, close/1]).
 -export([info/1, parse_query/1]).
 
--export([collect/3, collect/4]).
+-export([collect/3, collect/4, stop_collector/1]).
 -export([current_second/0, current_minute/0]).
 
 
@@ -85,8 +85,11 @@ close(DB) ->
 -spec read(Name::source_name(), Query::[{atom(),any()}], pulsedb:db()) -> {ok, [tick()], pulsedb:db()} | {error, Reason::any()}.
 read(Name, Query, DB) ->
   Query1 = clean_query(Query),
+  Downsampler = proplists:get_value(downsampler, Query),
   if
     is_pid(DB) -> pulsedb_worker:read(Name, Query1, DB);
+    DB == memory andalso Downsampler == {60,<<"avg">>} -> pulsedb_memory:read(Name, Query1, minutes);
+    DB == memory -> pulsedb_memory:read(Name, Query1, seconds);
     DB == seconds orelse DB == minutes -> pulsedb_memory:read(Name, Query1, DB);
     is_atom(DB) -> pulsedb_worker:read(Name, Query1, DB);
     is_tuple(DB) -> pulsedb_disk:read(Name, Query1, DB)
@@ -97,8 +100,8 @@ read(Query0, DB) when is_list(Query0) ->
   read(iolist_to_binary(Query0), DB);
 
 read(Query0, DB) when is_binary(Query0) ->
-  {Aggregator, _Downsampler, Name, Query} = parse_query(Query0),
-  read(Name, [{aggregator,Aggregator}] ++ Query, DB).
+  {Aggregator, Downsampler, Name, Query} = parse_query(Query0),
+  read(Name, [{aggregator,Aggregator},{downsampler,Downsampler}] ++ Query, DB).
 
 
 
@@ -109,6 +112,7 @@ parse_query(Query) ->
 clean_query([{from,From}|Query]) ->  [{from,pulsedb_time:parse(From)}|clean_query(Query)];
 clean_query([{to,To}|Query])     ->  [{to,pulsedb_time:parse(To)}|clean_query(Query)];
 clean_query([{aggregator,A}|Query])->[{aggregator,A}|clean_query(Query)];
+clean_query([{downsampler,D}|Query])->[{downsampler,D}|clean_query(Query)];
 clean_query([{Key,Value}|Query]) ->  [{to_b(Key),Value}|clean_query(Query)];
 clean_query([])                  ->  [].
 
@@ -124,6 +128,8 @@ collect(Name, Module, Args) ->
 collect(Name, Module, Args, Options) ->
   pulsedb_sup:start_collector(Name, Module, Args, Options).
 
+stop_collector(Name) ->
+  pulsedb_collector:stop(Name).
 
 % -spec merge([pulsedb:tick()], pulsedb:db()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
 

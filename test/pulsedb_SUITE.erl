@@ -16,6 +16,7 @@ groups() ->
     collector,
     collector_with_backend,
     collector_with_dead_backend,
+    collector_to_minute,
     autohealing,
     % forbid_to_read_after_append,
     % forbid_to_append_after_read,
@@ -288,8 +289,10 @@ parse_query(_) ->
   {undefined, undefined, <<"cpu">>, []} = pulsedb:parse_query("cpu"),
   {<<"max">>, undefined, <<"cpu">>, []} = pulsedb:parse_query("max:cpu"),
   {<<"max">>, undefined, <<"cpu">>, []} = pulsedb:parse_query("max:cpu{}"),
+  {undefined, undefined, <<"cpu">>, []} = pulsedb:parse_query("cpu{}"),
   {<<"max">>, {600,<<"avg">>}, <<"cpu">>, []} = pulsedb:parse_query("max:10m-avg:cpu{}"),
   {<<"max">>, undefined, <<"cpu">>, [{<<"host">>,<<"flu1">>}]} = pulsedb:parse_query("max:cpu{host=flu1}"),
+  {undefined, undefined, <<"cpu">>, [{<<"host">>,<<"flu1">>}]} = pulsedb:parse_query("cpu{host=flu1}"),
   {<<"sum">>, undefined, <<"media_output">>, [{<<"media">>,<<"ort">>},{<<"account">>,<<"1970-01-01">>}]} = 
     pulsedb:parse_query("sum:media_output{media=ort,account=1970-01-01}"),
   {<<"max">>, undefined, <<"cpu">>, [{<<"host">>,<<"flu1">>},{from,<<"123">>},{to,<<"456">>}]} = pulsedb:parse_query("max:cpu{host=flu1,from=123,to=456}"),
@@ -310,6 +313,12 @@ collector(_) ->
   sys:get_state(Pid),
   {ok, [{_,20}], _} = pulsedb:read(<<"max:test1">>, seconds),
   {ok, [{_,20}], _} = pulsedb:read(<<"max:test1{tag1=value1}">>, seconds),
+
+  {ok, [{_,20}], _} = pulsedb:read(<<"max:test1">>, memory),
+  {ok, [{_,20}], _} = pulsedb:read(<<"max:test1{tag1=value1}">>, memory),
+
+  ok = pulsedb:stop_collector(<<"test_collector">>),
+  {ok, [], _} = pulsedb:read(<<"max:test1">>, seconds),
   ok.
 
 
@@ -332,6 +341,22 @@ collector_with_backend(_) ->
 
   {ok, [{_,40}], _} = pulsedb:read("sum:test2{"++Range++"}", test_pulse_saver1),
   {ok, [{_,40}], _} = pulsedb:read("sum:test2{tag1=value1,"++Range++"}", test_pulse_saver1),
+  ok.
+
+
+collector_to_minute(_) ->
+  {Now,_} = pulsedb:current_second(),
+  Minute = (Now div 60)*60,
+
+  pulsedb:append([{<<"mmm">>, Minute - 10, 2, [{name, <<"src1">>}]}], seconds),
+  pulsedb:append([{<<"mmm">>, Minute - 8, 10, [{name, <<"src1">>}]}], seconds),
+  {ok, [{_,2},{_,10}], _} = pulsedb:read("mmm{from="++integer_to_list(Minute-240)++",to="++integer_to_list(Minute+40)++"}", seconds),
+  {ok, [{_,2},{_,10}], _} = pulsedb:read("mmm{from="++integer_to_list(Minute-240)++",to="++integer_to_list(Minute+40)++"}", memory),
+
+  pulsedb_memory:merge_seconds_data([{<<"mmm">>,[{<<"name">>,<<"src1">>}]}], Minute),
+  {ok, [{_,6}], _} = pulsedb:read("mmm{from="++integer_to_list(Minute-240)++",to="++integer_to_list(Minute+40)++"}", minutes),
+  {ok, [{_,6}], _} = pulsedb:read("sum:1m-avg:mmm{from="++integer_to_list(Minute-240)++",to="++integer_to_list(Minute+40)++"}", memory),
+
   ok.
 
 

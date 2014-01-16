@@ -35,17 +35,27 @@ start_link(Name, Module, Args, Options) ->
 
 
 stop(Name) ->
-  supervisor:terminate_child(pulse_flows, Name),
-  supervisor:delete_child(pulse_flows, Name),
+  Metrics = case lists:keyfind(Name, 1, supervisor:which_children(pulsedb_collectors)) of
+    {Name, Pid, _, _} -> gen_server:call(Pid, metrics);
+    _ -> []
+  end,
 
-  ets:select_delete(pulse_flow_minute, ets:fun2ms(fun(Row) when 
-    element(1,element(1,Row)) == Name  -> true
-  end)),
+  supervisor:terminate_child(pulsedb_collectors, Name),
+  supervisor:delete_child(pulsedb_collectors, Name),
 
-  ets:select_delete(pulse_flow_second, ets:fun2ms(fun(Row) when 
-    element(1,element(1,Row)) == Name -> true
-  end)),
-  ets:delete(pulse_flow_config, Name),
+  lists:foreach(fun(M) ->
+    ets:select_delete(pulsedb_seconds_data, ets:fun2ms(fun(Row) when 
+      element(1,element(1,Row)) == M -> true
+    end)),
+
+    ets:select_delete(pulsedb_minutes_data, ets:fun2ms(fun(Row) when 
+      element(1,element(1,Row)) == M  -> true
+    end)),
+
+    ets:select_delete(pulsedb_metric_names, ets:fun2ms(fun({_,M_}) when 
+      M_ == M  -> true
+    end))
+  end, Metrics),
   ok.
 
 
@@ -86,6 +96,10 @@ init([Name, Module, Args, Options]) ->
   {ok, #collect{name = Name, flush_timer = FlushTimer, copy_to = Copy,
     collect_timer = CollectTimer, module = Module, state = State}}.
 
+
+
+handle_call(metrics, _, #collect{known_metrics = Metrics} = Flow) ->
+  {reply, [M || {_,M} <- Metrics], Flow};
 
 handle_call(stop, _, #collect{} = Flow) ->
   {stop, normal, ok, Flow};

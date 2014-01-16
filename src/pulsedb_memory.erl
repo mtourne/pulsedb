@@ -97,7 +97,7 @@ read(Name, Query, DB) when DB == seconds orelse DB == minutes ->
 
 
 
-merge_seconds_data(Metrics, UTC) ->
+merge_seconds_data(Metrics, UTC) when UTC rem 60 == 0 ->
   Ticks = lists:seq(UTC - 60, UTC, 1),
 
   Updates = lists:flatmap(fun({Name,Tags}) ->
