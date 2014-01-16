@@ -98,17 +98,17 @@ handle_info(collect, #collect{state = State,
   {UTC, CollectDelay} = pulsedb:current_second(),
 
   {reply, Values, State1} = Module:pulse_collect(State),
-  Ticks = [{Name,UTC,Value,Tags} || {Name,Value,Tags} <- Values],
+  Ticks = [{to_b(Name),UTC,Value,[{to_b(K),to_b(V)} || {K,V} <- Tags]} || {Name,Value,Tags} <- Values],
 
   % FIXME: here we save data from pulsedb_collector _only_ to memory
   pulsedb_memory:append(Ticks, seconds),
 
-  Metrics = lists:foldl(fun({Name,_,Tags}, List) ->
+  Metrics = lists:foldl(fun({Name,_,_,Tags}, List) ->
     case lists:keyfind({Name,Tags},1,List) of
       false -> [{{Name,Tags}, pulsedb_disk:metric_name(Name,Tags)}|List];
       _ -> List
     end
-  end, KnownMetrics, Values),
+  end, KnownMetrics, Ticks),
   CollectTimer = erlang:send_after(CollectDelay, self(), collect),
   {noreply, Flow#collect{collect_timer = CollectTimer, state = State1, known_metrics = Metrics}};
 
@@ -128,6 +128,10 @@ handle_info(flush, #collect{flush_timer = OldTimer, known_metrics = Metrics} = F
   FlushTimer = erlang:send_after(FlushDelay, self(), flush),
   {noreply, Flow#collect{flush_timer = FlushTimer}}.
 
+
+
+to_b(Bin) when is_binary(Bin) -> Bin;
+to_b(Atom) when is_atom(Atom) -> atom_to_binary(Atom,latin1).
 
 
 

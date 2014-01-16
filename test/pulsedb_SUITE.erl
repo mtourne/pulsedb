@@ -268,7 +268,7 @@ parse_query(_) ->
 
 
 pulse_init(test_collect) -> {ok, 20}.
-pulse_collect(N) -> {reply, [{<<"test1">>, N, []}], N}.
+pulse_collect(N) -> {reply, [{test1, N, [{tag1,<<"value1">>}]}], N}.
 
 
 collector(_) ->
@@ -277,6 +277,7 @@ collector(_) ->
   Pid ! collect,
   sys:get_state(Pid),
   {ok, [{_,20}], _} = pulsedb:read(<<"max:test1">>, seconds),
+  {ok, [{_,20}], _} = pulsedb:read(<<"max:test1{tag1=value1}">>, seconds),
   ok.
 
 

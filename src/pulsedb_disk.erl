@@ -223,7 +223,6 @@ metric_name(Name, Tags) ->
  iolist_to_binary([Name, [[":",K,"=",V] ||  {K,V} <- lists:sort(Tags)]]).
 
 
-
 append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd, config_fd = ConfigFd, sources = Sources} = DB) ->
   #source{data_offset = Offset, data_offset_ptr = ConfigPtr, end_of_block = EOF} = Source =
     lists:keyfind(SourceId,#source.id,Sources),
