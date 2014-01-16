@@ -285,6 +285,7 @@ info(_) ->
 
 
 parse_query(_) ->
+  {<<"cpu">>, undefined, []} = pulsedb:parse_query("cpu"),
   {<<"cpu">>, <<"max">>, []} = pulsedb:parse_query("max:cpu"),
   {<<"cpu">>, <<"max">>, [{<<"host">>,<<"flu1">>}]} = pulsedb:parse_query("max:cpu{host=flu1}"),
   {<<"media_output">>, <<"sum">>, [{<<"media">>,<<"ort">>},{<<"account">>,<<"1970-01-01">>}]} = 

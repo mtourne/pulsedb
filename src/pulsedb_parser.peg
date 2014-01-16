@@ -1,6 +1,11 @@
 
-query <- agg:aggregator ":" mn:metric_name "{" tags:tags / agg:aggregator ":" mn:metric_name `
-  {proplists:get_value(mn,Node), proplists:get_value(agg,Node), proplists:get_value(tags,Node,[])}
+query <- agg:aggregator ":" mn:metric_name "{" tags:tags / agg:aggregator ":" mn:metric_name / mn:metric_name `
+  case Node of
+    {mn, Metric} ->
+      {Metric, undefined, []};
+    _ ->
+      {proplists:get_value(mn,Node), proplists:get_value(agg,Node), proplists:get_value(tags,Node,[])}
+  end
 `;
 
 tags <- tag:tag "}" / tag:tag "," tags:tags `
