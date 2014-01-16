@@ -138,7 +138,7 @@ handle_info(flush, #collect{flush_timer = OldTimer, known_metrics = Metrics} = F
   {UTC, FlushDelay} = pulsedb:current_minute(),
 
   % FIXME: need to move minute aggregation to pulsedb_memory from here
-  _Updates = pulsedb_memory:merge_seconds_data([ {Name,Tag} || {{Name,Tag},_} <- Metrics], UTC),
+  _Updates = pulsedb_memory:merge_seconds_data([ {Name,Tag} || {{Name,Tag},_} <- Metrics], (UTC div 60)*60),
 
   % FIXME: send Updates to clients
   % [Pid ! Msg || {_,Pid} <- ets:lookup(pulse_flow_clients, Name)],

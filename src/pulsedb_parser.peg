@@ -1,6 +1,13 @@
 
-query <- agg:aggregator ":" ds:downsampler ":" mn:metric_name "{" tags:tags / agg:aggregator ":" mn:metric_name "{" tags:tags / 
-  agg:aggregator ":" mn:metric_name / mn:metric_name "{" tags:tags / mn:metric_name `
+query <- 
+
+agg:aggregator ":" ds:downsampler ":" mn:metric_name "{" tags:tags / 
+agg:aggregator ":" ds:downsampler ":" mn:metric_name / 
+agg:aggregator ":" mn:metric_name "{" tags:tags / 
+mn:metric_name "{" tags:tags /
+agg:aggregator ":" mn:metric_name / 
+mn:metric_name 
+`
   case Node of
     {mn, Metric} ->
       {undefined, undefined, Metric, []};
