@@ -97,7 +97,7 @@ read(Query0, DB) when is_list(Query0) ->
   read(iolist_to_binary(Query0), DB);
 
 read(Query0, DB) when is_binary(Query0) ->
-  {Name, Aggregator, Query} = parse_query(Query0),
+  {Aggregator, _Downsampler, Name, Query} = parse_query(Query0),
   read(Name, [{aggregator,Aggregator}] ++ Query, DB).
 
 

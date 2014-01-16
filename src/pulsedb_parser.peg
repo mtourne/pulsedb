@@ -1,17 +1,30 @@
 
-query <- agg:aggregator ":" mn:metric_name "{" tags:tags / agg:aggregator ":" mn:metric_name / mn:metric_name `
+query <- agg:aggregator ":" ds:downsampler ":" mn:metric_name "{" tags:tags / agg:aggregator ":" mn:metric_name "{" tags:tags / 
+  agg:aggregator ":" mn:metric_name / mn:metric_name `
   case Node of
     {mn, Metric} ->
-      {Metric, undefined, []};
+      {undefined, undefined, Metric, []};
     _ ->
-      {proplists:get_value(mn,Node), proplists:get_value(agg,Node), proplists:get_value(tags,Node,[])}
+      {proplists:get_value(agg,Node), proplists:get_value(ds,Node), proplists:get_value(mn,Node), proplists:get_value(tags,Node,[])}
   end
 `;
 
-tags <- tag:tag "}" / tag:tag "," tags:tags `
-  [proplists:get_value(tag,Node)] ++ proplists:get_value(tags,Node,[])
+tags <- "}" / tag:tag "}" / tag:tag "," tags:tags `
+  case Node of
+    <<"}">> -> [];
+    _ -> [proplists:get_value(tag,Node)] ++ proplists:get_value(tags,Node,[])
+  end
 `;
 
+
+downsampler <- n:number (i:"m" / i:"h" / i:"d") "-" d:string `
+  Time = proplists:get_value(n,Node) * case proplists:get_value(i,Node) of
+    <<"m">> -> 60;
+    <<"h">> -> 3600;
+    <<"d">> -> 86400
+  end,
+  {Time, proplists:get_value(d,Node)}
+`;
 
 aggregator <- string;
 
@@ -39,3 +52,9 @@ string <- '"' s:((!'"' .)*) '"' / s:(nonspace)+ `
 
 
 nonspace <- [^ ;\{\}\n\t\r\,\=\:] ~;
+
+
+number <- [0-9]+ `list_to_integer(binary_to_list(iolist_to_binary(Node)))`;
+
+
+

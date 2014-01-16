@@ -285,14 +285,16 @@ info(_) ->
 
 
 parse_query(_) ->
-  {<<"cpu">>, undefined, []} = pulsedb:parse_query("cpu"),
-  {<<"cpu">>, <<"max">>, []} = pulsedb:parse_query("max:cpu"),
-  {<<"cpu">>, <<"max">>, [{<<"host">>,<<"flu1">>}]} = pulsedb:parse_query("max:cpu{host=flu1}"),
-  {<<"media_output">>, <<"sum">>, [{<<"media">>,<<"ort">>},{<<"account">>,<<"1970-01-01">>}]} = 
+  {undefined, undefined, <<"cpu">>, []} = pulsedb:parse_query("cpu"),
+  {<<"max">>, undefined, <<"cpu">>, []} = pulsedb:parse_query("max:cpu"),
+  {<<"max">>, undefined, <<"cpu">>, []} = pulsedb:parse_query("max:cpu{}"),
+  {<<"max">>, {600,<<"avg">>}, <<"cpu">>, []} = pulsedb:parse_query("max:10m-avg:cpu{}"),
+  {<<"max">>, undefined, <<"cpu">>, [{<<"host">>,<<"flu1">>}]} = pulsedb:parse_query("max:cpu{host=flu1}"),
+  {<<"sum">>, undefined, <<"media_output">>, [{<<"media">>,<<"ort">>},{<<"account">>,<<"1970-01-01">>}]} = 
     pulsedb:parse_query("sum:media_output{media=ort,account=1970-01-01}"),
-  {<<"cpu">>, <<"max">>, [{<<"host">>,<<"flu1">>},{from,<<"123">>},{to,<<"456">>}]} = pulsedb:parse_query("max:cpu{host=flu1,from=123,to=456}"),
+  {<<"max">>, undefined, <<"cpu">>, [{<<"host">>,<<"flu1">>},{from,<<"123">>},{to,<<"456">>}]} = pulsedb:parse_query("max:cpu{host=flu1,from=123,to=456}"),
 
-  {<<"cpu">>, <<"max">>, [{<<"host">>,<<"flu1">>},{from,<<"1970-01-01">>},{to,<<"456">>}]} = pulsedb:parse_query("max:cpu{host=flu1,from=1970-01-01,to=456}"),
+  {<<"max">>, undefined, <<"cpu">>, [{<<"host">>,<<"flu1">>},{from,<<"1970-01-01">>},{to,<<"456">>}]} = pulsedb:parse_query("max:cpu{host=flu1,from=1970-01-01,to=456}"),
   ok.
 
 
