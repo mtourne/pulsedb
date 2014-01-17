@@ -1,6 +1,6 @@
 -module(pulsedb_realtime).
 -export([subscribe/2, unsubscribe/1]).
--export([start_link/0, init/1, terminate/2, handle_info/2, handle_call/2]).
+-export([start_link/0, init/1, terminate/2, handle_info/2, handle_call/3]).
 
 -record(subscriptions, 
  {
@@ -28,7 +28,7 @@ terminate(_,_) ->
   ok.
 
 
-handle_call({subscribe, Pid, Query, Tag}, #subscriptions{clients=Clients0}=State) ->
+handle_call({subscribe, Pid, Query, Tag},_, #subscriptions{clients=Clients0}=State) ->
   Monitor = erlang:monitor(process, Pid),
   Clients = case lists:keytake(Query, 1, Clients0) of
     {value, {Q, UTC, Pids0}, Rest} ->
@@ -38,10 +38,10 @@ handle_call({subscribe, Pid, Query, Tag}, #subscriptions{clients=Clients0}=State
       [{Query,undefined,[{Pid,Tag,Monitor}]} | Clients0]
   end,
   
-  {noreply, State#subscriptions{clients=Clients}};
+  {reply, ok, State#subscriptions{clients=Clients}};
 
 
-handle_call({unsubscribe, Pid, Tag}, #subscriptions{clients=Clients0}=State) ->
+handle_call({unsubscribe, Pid, Tag},_, #subscriptions{clients=Clients0}=State) ->
   Clients1 = [begin
                 {Demonitor, Rest} = lists:partition(fun ({Pid0,Tag0,_}) ->
                                                       Pid0 == Pid andalso Tag0 == Tag
@@ -51,7 +51,7 @@ handle_call({unsubscribe, Pid, Tag}, #subscriptions{clients=Clients0}=State) ->
                 end
               || {Query,UTC,Pids} <- Clients0],
   Clients = [C || {Pids,_,_}=C <- Clients1, length(Pids) > 0],
-  {noreply, State#subscriptions{clients=Clients}}.
+  {reply, ok, State#subscriptions{clients=Clients}}.
 
 
 handle_info(tick, #subscriptions{clients=Clients}=State) ->
@@ -70,7 +70,7 @@ handle_info(tick, #subscriptions{clients=Clients}=State) ->
         end                 
     end
   end, Clients),
-  {_,Delay} = pulse:current_second(),
+  {_,Delay} = pulsedb:current_second(),
   erlang:send_after(Delay, self(), tick),
   {noreply, State#subscriptions{clients = Clients1}};
 

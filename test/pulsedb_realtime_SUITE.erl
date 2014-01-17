@@ -9,7 +9,8 @@ all() ->
 
 groups() ->
   [{subscribe, [parallel], [
-    t1
+    subscribe,
+    unsubscribe
   ]}].
 
 
@@ -22,12 +23,26 @@ end_per_suite(Config) ->
   application:stop(pulsedb),
   Config.
 
-t1(_) ->
+subscribe(_) ->
   N = ?TICK_COUNT,
   {UTC,_} = pulsedb:current_second(),
   spawn(fun () -> send_tick(N, {<<"input">>, UTC, 10, [{<<"name">>,<<"src1">>}]}) end),
   pulsedb_realtime:subscribe(<<"input">>, i),
   ok = collect_ticks(N,UTC,1200).
+
+
+unsubscribe(_) ->
+  N = ?TICK_COUNT,
+  {UTC,_} = pulsedb:current_second(),
+  spawn(fun () -> send_tick(N, {<<"input">>, UTC, 10, [{<<"name">>,<<"src1">>}]}) end),
+  pulsedb_realtime:subscribe(<<"input">>, i),
+  ok = collect_ticks(N,UTC,1200),
+  pulsedb_realtime:unsubscribe(i),
+  send_tick(N, {<<"input">>, UTC+6, 10, [{<<"name">>,<<"src1">>}]}),
+  receive
+    _ -> error(received_pulse)
+  after 2000 -> ok 
+  end.
   
   
 send_tick(0, _) -> ok;
