@@ -30,7 +30,7 @@ open(Path, Options) when is_binary(Path) ->
 
 open(Name, Options) when is_atom(Name) ->
   case Name of
-    undefined -> pulsedb_disk:open(proplists:get_value(url, Options));
+    undefined -> pulsedb_disk:open(proplists:get_value(url, Options), Options);
     _ -> pulsedb_worker:start_link(Name, Options)
   end.
 

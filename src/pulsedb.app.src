@@ -4,6 +4,6 @@
   {registered, []},
   {applications, [kernel, stdlib]},
   {mod, {pulsedb_app, []}},
-  {env, [{ticks_per_hour,60}]}
+  {env, []}
 ]}.
 

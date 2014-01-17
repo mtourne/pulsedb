@@ -26,6 +26,8 @@
   sources :: [source()],
   cached_source_names = [],
 
+  ticks = 3600,
+
   mode :: undefined | read | append,
 
   config_fd :: file:fd(),
@@ -34,7 +36,7 @@
 
 
 
--export([open/1, append/2, read/3, close/1]).
+-export([open/2, append/2, read/3, close/1]).
 -export([info/1]).
 -export([delete_older/2]).
 
@@ -42,13 +44,24 @@
 % -export([write_events/3]).
 
 
--spec open(Path::file:filename()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
-open(Path) when is_list(Path) ->
-  open(iolist_to_binary(Path));
-open(<<"file://", Path/binary>>) ->
-  open(Path);
-open(Path) ->
-  {ok, #disk_db{path = Path}}.
+-spec open(Path::file:filename(), Options::list()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
+open(Path, Options) when is_list(Path) ->
+  open(iolist_to_binary(Path), Options);
+open(<<"file://", Path/binary>>, Options) ->
+  open(Path, Options);
+open(Path, Options) ->
+  TicksPerHour = case proplists:get_value(ticks_per_hour, Options) of
+    undefined ->
+      case proplists:get_value(precision, Options) of
+        ms -> 3600000;
+        sec -> 3600;
+        min -> 60;
+        undefined -> 3600
+      end;
+    T when is_integer(T) ->
+      T
+  end,
+  {ok, #disk_db{path = Path, ticks = TicksPerHour}}.
 
 
 open0(#disk_db{path = Path, config_fd = undefined, date = Date} = DB, Mode) when Date =/= undefined ->
@@ -186,7 +199,7 @@ source_name(Name, Tags, #disk_db{cached_source_names = SourceNames} = DB) ->
 
 
 
-append_new_source(SourceName, Name, Tags, #disk_db{sources = Sources, config_fd = ConfigFd} = DB) ->
+append_new_source(SourceName, Name, Tags, #disk_db{sources = Sources, config_fd = ConfigFd, ticks = TicksPerHour} = DB) ->
   Begin = case Sources of
     [] -> 0;
     _ -> 
@@ -195,7 +208,6 @@ append_new_source(SourceName, Name, Tags, #disk_db{sources = Sources, config_fd 
   end,
 
   {ok, ConfigPos} = file:position(ConfigFd, eof),
-  {ok, TicksPerHour} = application:get_env(pulsedb, ticks_per_hour),
   EOF = Begin + 25*TicksPerHour*(4 + 4),
   Source = #source{id = length(Sources), name = SourceName,
     original_name = Name, original_tags = Tags,
