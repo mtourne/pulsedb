@@ -12,7 +12,7 @@ subscribe(Query, Tag) ->
 
 
 unsubscribe(_) ->
-  error(not_implemented).
+  {error, not_implemented}.
 
 
 start_link() -> 
@@ -30,7 +30,7 @@ terminate(_,_) ->
 
 handle_cast({subscribe, Pid, Query, Tag}, #subscriptions{clients=Clients0}=State) ->
   erlang:monitor(process, Pid),
-  {Found, Rest} = lists:partition(fun ({Key0,_,_}) -> Key0 == Query end, Clients0),
+  {Found, Rest} = lists:partition(fun ({Key0,_}) -> Key0 == Query end, Clients0),
   Clients = case Found of
     [{Q, Pids0}] ->
       Pids = lists:ukeysort(1, [{Pid,Tag}|Pids0]),
