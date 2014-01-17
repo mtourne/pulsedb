@@ -18,6 +18,7 @@ groups() ->
     collector_with_dead_backend,
     collector_to_minute,
     autohealing,
+    downsampling,
     % forbid_to_read_after_append,
     % forbid_to_append_after_read,
     % merge,
@@ -405,6 +406,26 @@ autohealing(_) ->
   {ok, [{123,3}], _} = pulsedb:read(<<"max:input{from=0,to=200}">>, DB4),
 
   ok.
+
+
+downsampling(_) ->
+  {ok, _} = pulsedb:open(test_downsampling, "test/v3/downsampling"),
+
+  pulsedb:append([{<<"ds">>, 10, 4, []}], test_downsampling),
+  pulsedb:append([{<<"ds">>, 12, 6, []}], test_downsampling),
+
+  pulsedb:append([{<<"ds">>, 100, 4, []}], test_downsampling),
+  pulsedb:append([{<<"ds">>, 102, 8, []}], test_downsampling),
+  pulsedb:append([{<<"ds">>, 104, 23, []}], test_downsampling),
+
+  pulsedb:append([{<<"ds">>, 724, 20, []}], test_downsampling),
+  pulsedb:append([{<<"ds">>, 725, 24, []}], test_downsampling),
+
+  {ok, [{0,9},{600,22}], _} = pulsedb:read("sum:10m-avg:ds{from=0,to=1800}", test_downsampling),
+  {ok, [{0,45},{600,44}], _} = pulsedb:read("sum:10m-sum:ds{from=0,to=1800}", test_downsampling),
+  {ok, [{0,23},{600,24}], _} = pulsedb:read("sum:10m-max:ds{from=0,to=1800}", test_downsampling),
+  ok.
+
 
 
 

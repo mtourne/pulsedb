@@ -38,7 +38,7 @@
 -export([info/1]).
 -export([delete_older/2]).
 
--export([metric_name/2, metric_fits_query/2, aggregate/2]).
+-export([metric_name/2, metric_fits_query/2, aggregate/2, downsample/2]).
 % -export([write_events/3]).
 
 
@@ -372,7 +372,8 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
   end, ReadSources),
   Ticks2 = lists:sort(Ticks1),
   Ticks3 = aggregate(proplists:get_value(aggregator,Query), Ticks2),
-  {ok, Ticks3, DB}.
+  Ticks4 = downsample(proplists:get_value(downsampler,Query), Ticks3),
+  {ok, Ticks4, DB}.
 
 
 metric_fits_query(Query, Tags) ->
@@ -403,8 +404,7 @@ aggregate(Aggegator, Ticks) ->
   aggregate(Agg, Ticks, undefined, []).
 
 
-aggregate(_Agg, [], undefined, []) ->
-  [];
+aggregate(_Agg, [], undefined, []) -> [];
 aggregate(Agg, [], UTC, Acc) -> [{UTC,Agg(Acc)}];
 aggregate(Agg, [{UTC,V1}|Ticks], undefined, []) -> aggregate(Agg, Ticks, UTC, [V1]);
 aggregate(Agg, [{UTC,V1}|Ticks], UTC, Acc) -> aggregate(Agg, Ticks, UTC, [V1|Acc]);
@@ -419,6 +419,29 @@ avg(Acc) -> lists:sum(Acc) div length(Acc).
 
 max([]) -> 0;
 max(Acc) -> lists:max(Acc).
+
+
+
+
+downsample(undefined, Ticks) ->
+  Ticks;
+
+downsample({Step, Downsampler}, Ticks) ->
+  D = case Downsampler of
+    undefined -> fun sum/1;
+    <<"sum">> -> fun sum/1;
+    <<"avg">> -> fun avg/1;
+    <<"max">> -> fun max/1;
+    Else -> error({unknown_aggregator,Else})
+  end,
+  downsample(D, Ticks, Step, undefined, []).
+
+
+downsample(_D, [], _Step, undefined, []) -> [];
+downsample(D, [], _Step, UTC, Acc) -> [{UTC,D(Acc)}];
+downsample(D, [{UTC,V}|Ticks], Step, undefined, []) -> downsample(D, Ticks, Step, (UTC div Step)*Step, [V]);
+downsample(D, [{UTC,V}|Ticks], Step, N, Acc) when (UTC div Step)*Step == N -> downsample(D, Ticks, Step, N, [V|Acc]);
+downsample(D, [{UTC,V}|Ticks], Step, N, Acc) -> [{N,D(Acc)}|downsample(D, Ticks, Step, (UTC div Step)*Step, [V])].
 
 
 
