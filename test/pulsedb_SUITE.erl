@@ -19,6 +19,7 @@ groups() ->
     collector_to_minute,
     autohealing,
     downsampling,
+    replicator,
     % forbid_to_read_after_append,
     % forbid_to_append_after_read,
     % merge,
@@ -425,6 +426,29 @@ downsampling(_) ->
   {ok, [{0,9},{600,22}], _} = pulsedb:read("sum:10m-avg:ds{from=0,to=1800}", test_downsampling),
   {ok, [{0,45},{600,44}], _} = pulsedb:read("sum:10m-sum:ds{from=0,to=1800}", test_downsampling),
   {ok, [{0,23},{600,24}], _} = pulsedb:read("sum:10m-max:ds{from=0,to=1800}", test_downsampling),
+  ok.
+
+
+
+replicator(_) ->
+  Self = self(),
+  Pid = spawn_link(fun() ->
+    pulsedb:replicate(seconds),
+    receive
+      M -> Self ! {replicated, M}
+    end
+  end),
+
+  pulsedb:append([{<<"repl">>, 10, 4, []}], memory),
+
+  receive
+    {replicated, _} -> ok
+  after
+    100 -> 
+      ct:pal("msg: ~p", [process_info(self(),messages)]),
+      error(replication_not_working)
+  end,
+
   ok.
 
 
