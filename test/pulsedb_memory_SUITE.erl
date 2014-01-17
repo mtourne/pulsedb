@@ -36,7 +36,8 @@ end_per_suite(Config) ->
 
 
 read_and_write_from_memory(_) ->
-  T = flu:now() - 120,
+  {Now, _} = pulsedb:current_second(),
+  T = Now - 120,
 
   pulsedb_memory:append([
     {<<"input">>, T+0, 10, [{<<"name">>,<<"src1">>}]},
@@ -77,7 +78,7 @@ read_and_write_from_memory(_) ->
 
 
   pulsedb_memory:append([
-    {<<"input">>, flu:now(), 40, [{<<"name">>,<<"src1">>}]}
+    {<<"input">>, Now, 40, [{<<"name">>,<<"src1">>}]}
   ], seconds),
 
   {ok, [

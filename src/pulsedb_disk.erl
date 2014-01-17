@@ -7,6 +7,7 @@
 -record(source, {
   id :: non_neg_integer(),
   name :: source_name(),
+  is_64bit = true :: boolean(),
   original_name :: source_name(),
   original_tags :: list(),
   data_offset :: non_neg_integer(),
@@ -208,7 +209,7 @@ append_new_source(SourceName, Name, Tags, #disk_db{sources = Sources, config_fd 
   end,
 
   {ok, ConfigPos} = file:position(ConfigFd, eof),
-  EOF = Begin + 25*TicksPerHour*(4 + 4),
+  EOF = Begin + 24*TicksPerHour*(4 + 8),
   Source = #source{id = length(Sources), name = SourceName,
     original_name = Name, original_tags = Tags,
     start_of_block = Begin, end_of_block = EOF,
@@ -219,12 +220,13 @@ append_new_source(SourceName, Name, Tags, #disk_db{sources = Sources, config_fd 
 
 
 -define(CONFIG_SOURCE, 2).
+-define(CONFIG_SOURCE64, 3).
 
 encode_config(#source{name = Name, data_offset = Offset, start_of_block = Start, end_of_block = End}) ->
   L = size(Name),
-  Conf = <<Offset:32, Start:32, End:32, L:16, Name:L/binary>>,
+  Conf = <<Offset:64, Start:64, End:64, L:16, Name:L/binary>>,
   Size = iolist_size(Conf),
-  iolist_to_binary([<<?CONFIG_SOURCE, Size:16>>, Conf]).
+  iolist_to_binary([<<?CONFIG_SOURCE64, Size:16>>, Conf]).
 
 -spec decode_config(binary()) -> [source()].
 
@@ -240,8 +242,21 @@ decode_config(<<?CONFIG_SOURCE, Length:16, Source:Length/binary, Rest/binary>>, 
     {K,V}
   end, Tags),
   [#source{id = Id, name = Name, start_of_block = Start, end_of_block = End, data_offset = Offset, data_offset_ptr = DataOffsetPtr,
+    original_name = OriginalName, original_tags = OriginalTags, is_64bit = false}
+    |decode_config(Rest, ConfigOffset + 1 + 2 + Length, Id + 1)];
+
+decode_config(<<?CONFIG_SOURCE64, Length:16, Source:Length/binary, Rest/binary>>, ConfigOffset, Id) ->
+  <<Offset:64, Start:64, End:64, L:16, Name:L/binary>> = Source,
+  DataOffsetPtr = ConfigOffset + 3,
+  [OriginalName|Tags] = binary:split(Name, <<":">>, [global]),
+  OriginalTags = lists:map(fun(T) ->
+    [K,V] = binary:split(T, <<"=">>),
+    {K,V}
+  end, Tags),
+  [#source{id = Id, name = Name, start_of_block = Start, end_of_block = End, data_offset = Offset, data_offset_ptr = DataOffsetPtr,
     original_name = OriginalName, original_tags = OriginalTags}
     |decode_config(Rest, ConfigOffset + 1 + 2 + Length, Id + 1)];
+
 
 decode_config(<<>>, _, _) ->
   [].
@@ -253,15 +268,21 @@ metric_name(Name, Tags) ->
 
 
 append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd, config_fd = ConfigFd, sources = Sources} = DB) ->
-  #source{data_offset = Offset, data_offset_ptr = ConfigPtr, end_of_block = EOF} = Source =
+  #source{data_offset = Offset, data_offset_ptr = ConfigPtr, end_of_block = EOF, is_64bit = Is64} = Source =
     lists:keyfind(SourceId,#source.id,Sources),
 
-  Block = <<UTC:32, Value:32>>,
+  Block = case Is64 of
+    true -> <<UTC:32, Value:64>>;
+    false -> <<UTC:32, Value:32>>
+  end,
   case iolist_size(Block) + Offset =< EOF of
     true ->
       file:pwrite(DataFd, Offset, Block),
       NewDataOffset = Offset + iolist_size(Block),
-      file:pwrite(ConfigFd, ConfigPtr, <<NewDataOffset:32>>),
+      case Is64 of
+        true -> file:pwrite(ConfigFd, ConfigPtr, <<NewDataOffset:64>>);
+        false -> file:pwrite(ConfigFd, ConfigPtr, <<NewDataOffset:32>>)
+      end,
       Sources1 = lists:keystore(SourceId,#source.id, Sources, Source#source{data_offset = NewDataOffset}),
       {ok, DB#disk_db{sources = Sources1}};
     false ->
@@ -371,10 +392,13 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
 
   ReadSources = select_sources(Name, Tags, Sources),
 
-  Ticks1 = lists:flatmap(fun(#source{start_of_block = Start, data_offset = Offset}) ->
+  Ticks1 = lists:flatmap(fun(#source{start_of_block = Start, data_offset = Offset, is_64bit = Is64}) ->
     case file:pread(DataFd, Start, Offset - Start) of
       {ok, Bin} ->
-        TicksBin1 = [ {UTC,Value} || <<UTC:32, Value:32>> <= Bin],
+        TicksBin1 = case Is64 of
+          true -> [ {UTC,Value} || <<UTC:32, Value:64>> <= Bin];
+          false -> [ {UTC,Value} || <<UTC:32, Value:32>> <= Bin]
+        end,
         TicksBin2 = filter_ticks(TicksBin1, proplists:get_value(from,Query), proplists:get_value(to,Query)),
         Ticks = [{UTC, Value} || {UTC,Value} <- TicksBin2],
         Ticks;
