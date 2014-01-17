@@ -24,8 +24,9 @@ tags <- "}" / tag:tag "}" / tag:tag "," tags:tags `
 `;
 
 
-downsampler <- n:number (i:"m" / i:"h" / i:"d") "-" d:string `
+downsampler <- n:number (i:"s" / i:"m" / i:"h" / i:"d") "-" d:string `
   Time = proplists:get_value(n,Node) * case proplists:get_value(i,Node) of
+    <<"s">> -> 1;
     <<"m">> -> 60;
     <<"h">> -> 3600;
     <<"d">> -> 86400

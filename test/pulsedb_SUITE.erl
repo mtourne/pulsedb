@@ -291,6 +291,7 @@ parse_query(_) ->
   {<<"max">>, undefined, <<"cpu">>, []} = pulsedb:parse_query("max:cpu"),
   {<<"max">>, undefined, <<"cpu">>, []} = pulsedb:parse_query("max:cpu{}"),
   {undefined, undefined, <<"cpu">>, []} = pulsedb:parse_query("cpu{}"),
+  {<<"max">>, {6,<<"avg">>}, <<"cpu">>, []} = pulsedb:parse_query("max:6s-avg:cpu"),
   {<<"max">>, {600,<<"avg">>}, <<"cpu">>, []} = pulsedb:parse_query("max:10m-avg:cpu"),
   {<<"max">>, {600,<<"avg">>}, <<"cpu">>, []} = pulsedb:parse_query("max:10m-avg:cpu{}"),
   {<<"max">>, undefined, <<"cpu">>, [{<<"host">>,<<"flu1">>}]} = pulsedb:parse_query("max:cpu{host=flu1}"),
