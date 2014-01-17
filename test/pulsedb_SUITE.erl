@@ -445,11 +445,12 @@ replicator(_) ->
   end),
 
   pulsedb:append([{<<"repl">>, 10, 4, []}], memory),
+  pulsedb:append([{<<"repl">>, 12, 4, []}], memory),
 
   receive
     {replicated, _} -> ok
   after
-    100 -> 
+    500 -> 
       ct:pal("msg: ~p", [process_info(self(),messages)]),
       error(replication_not_working)
   end,
