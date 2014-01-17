@@ -13,7 +13,7 @@
 -export([current_second/0, current_minute/0]).
 
 -export([subscribe/2, unsubscribe/1]).
-
+-export([replicate/1]).
 
 
 -spec open(Path::file:filename()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
@@ -23,7 +23,10 @@ open(Path) ->
 
 -spec open(Path::file:filename()|atom(), Options::list()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
 open(Path, Options) when is_list(Path) ->
-  open(undefined, [{url, "file://"++Path}|Options]);
+  open(undefined, [{url, <<"file://", (list_to_binary(Path))/binary>>}|Options]);
+
+open(Path, Options) when is_binary(Path) ->
+  open(undefined, [{url, <<"file://", Path/binary>>}|Options]);
 
 open(Name, Options) when is_atom(Name) ->
   case Name of
@@ -83,6 +86,9 @@ unsubscribe(Ref) ->
   pulsedb_realtime:unsubscribe(Ref).
 
 
+
+replicate(DB) when DB == seconds orelse DB == minutes ->
+  pulsedb_memory:replicate(DB, self()).
 
 
 % -export([open/1, read/2, info/1, append/2, merge/2, close/1]).

@@ -9,12 +9,19 @@
 
 
 -export([subscribe/2, unsubscribe/2]).
+-export([replicate/2]).
 
 
 
 
 start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+
+
+replicate(DB, Pid) ->
+  gen_server:call(?MODULE, {replicate, DB, Pid}).
+
 
 
 append(Ticks, DB) when is_list(Ticks) ->
@@ -33,6 +40,8 @@ append0({Name,UTC,Value,Tags}, DB) ->
   end,
   Metric = cached_metric_name(Name,Tags),
   ets:insert_new(Table, {{Metric,UTC}, Value}),
+  Pulse = {pulse,DB,Name,UTC-60,Value,Tags},
+  [Pid ! Pulse || {_,Pid} <- ets:lookup(pulsedb_replicators, DB)],
   ok.
 
 
@@ -115,6 +124,8 @@ merge_seconds_data(Metrics, UTC) when UTC rem 60 == 0 ->
       _ ->
         Value = lists:sum(Stats) div length(Stats),
         ets:insert(pulsedb_minutes_data, {{Metric,UTC - 60}, Value}),
+        Pulse = {pulse,minutes,Name,UTC-60,Value,Tags},
+        [Pid ! Pulse || {_,Pid} <- ets:lookup(pulsedb_replicators, minutes)],
         [{Name,UTC - 60,Value, Tags}]
     end
   end, Metrics),
@@ -144,24 +155,31 @@ init([]) ->
   ets:new(pulsedb_seconds_data, [public, named_table, {write_concurrency,true}]),
   ets:new(pulsedb_minutes_data, [public, named_table, {write_concurrency,true}]),
   ets:new(pulsedb_metric_names, [public, named_table, {read_concurrency,true}]),
+  ets:new(pulsedb_replicators,  [public, named_table, {read_concurrency,true}, bag]),
   % ets:new(pulse_flow_clients, [public, named_table, bag, {read_concurrency,true}]),
 
   CleanTimer = erlang:send_after(?TIMEOUT, self(), clean),
   {ok, #storage{clean_timer = CleanTimer}}.
 
 
-handle_call({subscribe,Pid,Name}, _, #storage{} = S) ->
-  MS = ets:fun2ms(fun({N,P}) -> N == Name andalso P == Pid end),
-  case ets:select_count(pulse_flow_clients, MS) of
-    1 -> {reply, ok, S};
-    0 ->
-      erlang:monitor(process, Pid),
-      ets:insert(pulse_flow_clients, {Name,Pid}),
-      {reply, ok, S}
-  end;
+% handle_call({subscribe,Pid,Name}, _, #storage{} = S) ->
+%   MS = ets:fun2ms(fun({N,P}) -> N == Name andalso P == Pid end),
+%   case ets:select_count(pulse_flow_clients, MS) of
+%     1 -> {reply, ok, S};
+%     0 ->
+%       erlang:monitor(process, Pid),
+%       ets:insert(pulse_flow_clients, {Name,Pid}),
+%       {reply, ok, S}
+%   end;
+%
+% handle_call({unsubscribe,Pid,Name}, _, #storage{} = S) ->
+%   ets:delete_object(pulse_flow_clients, {Name,Pid}),
+%   {reply, ok, S};
 
-handle_call({unsubscribe,Pid,Name}, _, #storage{} = S) ->
-  ets:delete_object(pulse_flow_clients, {Name,Pid}),
+
+handle_call({replicate, DB, Pid}, _, #storage{} = S) ->
+  ets:insert(pulsedb_replicators, {DB, Pid}),
+  erlang:monitor(process, Pid),
   {reply, ok, S}.
 
 
@@ -192,7 +210,8 @@ handle_info(clean, #storage{clean_timer = Old} = S) ->
 
 handle_info({'DOWN', _, _, Pid, _}, #storage{} = S) ->
   MS = ets:fun2ms(fun({_,P}) -> P == Pid end),
-  ets:select_delete(pulse_flow_clients, MS),
+  % ets:select_delete(pulse_flow_clients, MS),
+  ets:select_delete(pulsedb_replicators, MS),
   {noreply, S}.
 
 
