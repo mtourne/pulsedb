@@ -12,7 +12,7 @@
 -export([collect/3, collect/4, stop_collector/1]).
 -export([current_second/0, current_minute/0]).
 
--export([subscribe/1, unsubscribe/1]).
+-export([subscribe/2, unsubscribe/1]).
 
 
 
@@ -76,8 +76,8 @@ close(DB) ->
 
 
 
-subscribe(Query) ->
-  pulsedb_realtime:subscribe(Query).
+subscribe(Query, Tag) ->
+  pulsedb_realtime:subscribe(Query, Tag).
 
 unsubscribe(Ref) ->
   pulsedb_realtime:unsubscribe(Ref).

@@ -26,7 +26,7 @@ t1(_) ->
   N = ?TICK_COUNT,
   {UTC,_} = pulsedb:current_second(),
   spawn(fun () -> send_tick(N, {<<"input">>, UTC, 10, [{<<"name">>,<<"src1">>}]}) end),
-  pulsedb_realtime:subscribe(<<"input">>),
+  pulsedb_realtime:subscribe(<<"input">>, i),
   ok = collect_ticks(N,UTC,1200).
   
   
@@ -41,7 +41,7 @@ send_tick(N, {Name, UTC, Value, Tags}=Pulse) ->
 collect_ticks(0,_,_) -> ok;
 collect_ticks(N,UTC,Timeout) ->
   receive
-    {UTC,_} -> collect_ticks(N-1,UTC+1,Timeout)
+    {pulse, i, UTC,_} -> collect_ticks(N-1,UTC+1,Timeout)
   after
     Timeout -> error(collect_timed_out)
   end.

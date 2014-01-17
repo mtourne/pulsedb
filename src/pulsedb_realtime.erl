@@ -1,5 +1,5 @@
 -module(pulsedb_realtime).
--export([subscribe/1, unsubscribe/1]).
+-export([subscribe/2, unsubscribe/1]).
 -export([start_link/0, init/1, terminate/2, handle_info/2, handle_cast/2]).
 
 -record(subscriptions, 
@@ -7,8 +7,8 @@
   clients=[] % query_key, {Name,Query}, pids
   }).
 
-subscribe(Query) ->
-  gen_server:cast(?MODULE, {subscribe, self(), Query}).
+subscribe(Query, Tag) ->
+  gen_server:cast(?MODULE, {subscribe, self(), Query, Tag}).
 
 
 unsubscribe(_) ->
@@ -28,15 +28,15 @@ terminate(_,_) ->
   ok.
 
 
-handle_cast({subscribe, Pid, Query}, #subscriptions{clients=Clients0}=State) ->
+handle_cast({subscribe, Pid, Query, Tag}, #subscriptions{clients=Clients0}=State) ->
   erlang:monitor(process, Pid),
-  {Found, Rest} = lists:partition(fun ({Key0,_}) -> Key0 == Query end, Clients0),
+  {Found, Rest} = lists:partition(fun ({Key0,_,_}) -> Key0 == Query end, Clients0),
   Clients = case Found of
-    [{Q, Pids0}] -> 
-      Pids = lists:usort([Pid|Pids0]),
+    [{Q, Pids0}] ->
+      Pids = lists:ukeysort(1, [{Pid,Tag}|Pids0]),
       [{Q,Pids} | Rest];
     _ ->
-      [{Query,[Pid]} | Rest]
+      [{Query,[{Pid,Tag}]} | Rest]
   end,
   
   {noreply, State#subscriptions{clients=Clients}}.
@@ -48,7 +48,9 @@ handle_info(tick, #subscriptions{clients=Clients}=State) ->
                   {ok, Data,_} = pulsedb:read(Query, memory),
                   case Data of
                     [] -> ok;
-                    Data -> [Pid ! lists:last(Data) || Pid <- Pids]
+                    Data ->
+                      {UTC, V} = lists:last(Data),
+                      [Pid ! {pulse, Tag, UTC, V} || {Pid, Tag}<- Pids]
                   end                 
                 end,
                 Clients),
