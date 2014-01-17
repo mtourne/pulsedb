@@ -4,21 +4,24 @@ Pulsedb
 
 This library is a storage for statistics like network usage, load, etc..
 
-It is an append-only online-compress storage, that supports indexing and simple lookups of stored data.
+It is an append-only storage, that supports indexing and simple lookups of stored data.
 
 
 Writing data
 ----------------------
 
 
-    {ok, DB1} = pulsedb:open("stats"),
-    {ok, DB2} = pulsedb:append([
-        #tick{name = <<"net/eth0">>, utc = 1378950600, values = [{input,432423},{output,4324141232}]},
-        #tick{name = <<"net/eth0">>, utc = 1378950601, values = [{input,435003},{output,4324432132}]},
-        #tick{name = <<"net/eth0">>, utc = 1378950602, values = [{input,442143},{output,4328908132}]},
-        #tick{name = <<"net/eth0">>, utc = 1378950603, values = [{input,454643},{output,4324009544}]}
-    ], DB1),
-    pulsedb:close(DB2).
+    {ok, _} = pulsedb:open(my_database, "stats"), % Will call start_link
+    pulsedb:append([
+        {input, 1378950600, 432423, [{host,<<"host1.local">>,{iface,<<"eth0">>}}]},
+        {output, 1378950600, 4324141232, [{host,<<"host1.local">>,{iface,<<"eth0">>}}]},
+
+        {input, 1378950601, 435003, [{host,<<"host1.local">>,{iface,<<"eth0">>}}]},
+        {output, 1378950601, 4324432132, [{host,<<"host1.local">>,{iface,<<"eth0">>}}]},
+
+        {input, 1378950602, 442143, [{host,<<"host1.local">>,{iface,<<"eth0">>}}]},
+        {output, 1378950602, 4328908132, [{host,<<"host1.local">>,{iface,<<"eth0">>}}]}
+    ], my_database).
 
 
 Pulsedb will create files 
@@ -37,15 +40,17 @@ per minute so that pulsedb will be able to compress data.
 
 
 
+
+
 Reading data
 ------------
 
 
-    {ok, DB1} = pulsedb:open("stats"),
-    {ok, Ticks, DB2} = pulsedb:read([{name,<<"net/eth0">>},{from,"2013-09-12"},{to,"2013-09-12 12:45:32"}]),
-    pulsedb:close(DB2).
+    {ok, Ticks, _} = pulsedb:read("sum:output{from=2013-09-12,to=2013-09-13}", my_database),
+    {ok, Ticks2, _} = pulsedb:read("sum:1m-avg:output{from=1378950600,to=1378950800,host=host1.local}", my_database).
+
+Syntax of query is like in OpenTSDB
 
 
-Pulsedb can read data for several days. It will use created index for this.
 
 

@@ -50,7 +50,7 @@ open(Path, Options) when is_list(Path) ->
   open(iolist_to_binary(Path), Options);
 open(<<"file://", Path/binary>>, Options) ->
   open(Path, Options);
-open(Path, Options) ->
+open(Path, Options) when is_binary(Path) ->
   TicksPerHour = case proplists:get_value(ticks_per_hour, Options) of
     undefined ->
       case proplists:get_value(precision, Options) of
@@ -294,7 +294,7 @@ append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd, config_fd = ConfigF
 
 
 info(#disk_db{sources = Sources}) when is_list(Sources) ->
-  Src = [{Name,Tags} || #source{original_name = Name, original_tags = Tags} <- Sources],
+  Src = lists:sort([{Name,lists:sort(Tags)} || #source{original_name = Name, original_tags = Tags} <- Sources]),
   [{sources,Src}];
 
 info(#disk_db{path = Path} = DB) ->

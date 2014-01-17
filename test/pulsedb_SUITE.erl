@@ -245,7 +245,7 @@ worker_cleanup(_) ->
 
 
 info(_) ->
-  {ok, DB0} = pulsedb:open("test/v2/info"),
+  {ok, DB0} = pulsedb:open(test_info_db, <<"test/v2/info">>),
 
   Ticks1 = [
     {<<"input">>,  21,  5, [{name, <<"source1">>}]},
@@ -256,7 +256,7 @@ info(_) ->
    
     {<<"input">>,  23,  3, [{name, <<"source1">>}]},
     {<<"output">>, 23,  6, [{name, <<"source1">>}]}],
-  {ok, DB1} = pulsedb:append(Ticks1, DB0),
+  pulsedb:append(Ticks1, test_info_db),
 
   Ticks2 = [
     {<<"x">>, 21,  5, [{name, <<"source2">>}, {host, <<"t1">>}]},
@@ -267,17 +267,22 @@ info(_) ->
    
     {<<"x">>, 23,  3, [{name, <<"source2">>}, {host, <<"t1">>}]},
     {<<"y">>, 23,  6, [{name, <<"source2">>}, {host, <<"t1">>}]}],
-  {ok, DB2} = pulsedb:append(Ticks2, DB1),
+  pulsedb:append(Ticks2, test_info_db),
 
-  Info1 = pulsedb:info(DB2),
+  {ok, DB1} = pulsedb:open(<<"test/v2/info">>),
+
+  Info1 = pulsedb:info(test_info_db),
+  Info1_ = pulsedb:info(DB1),
+  % ct:pal("~p = ~p", [Info1, Info1_]),
+  Info1 = Info1_,
   {_,Metrics1} = lists:keyfind(sources,1,Info1),
   {_,Tags1} = lists:keyfind(<<"input">>,1,Metrics1),
   TagNames1 = [Name || {Name,_} <- Tags1],
   [<<"name">>] = TagNames1,
 
-  pulsedb:close(DB2),
+  pulsedb:close(DB1),
 
-  Info2 = pulsedb:info("test/v2/info"),
+  Info2 = pulsedb:info(<<"test/v2/info">>),
   {_,Metrics2} = lists:keyfind(sources,1,Info2),
   {_,Tags2} = lists:keyfind(<<"x">>,1,Metrics2),
   TagNames2 = [Name || {Name,_} <- Tags2],
@@ -411,7 +416,7 @@ autohealing(_) ->
 
 
 downsampling(_) ->
-  {ok, _} = pulsedb:open(test_downsampling, "test/v3/downsampling"),
+  {ok, _} = pulsedb:open(test_downsampling, <<"test/v3/downsampling">>),
 
   pulsedb:append([{<<"ds">>, 10, 4, []}], test_downsampling),
   pulsedb:append([{<<"ds">>, 12, 6, []}], test_downsampling),

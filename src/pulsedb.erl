@@ -28,10 +28,16 @@ open(Path, Options) when is_list(Path) ->
 open(Path, Options) when is_binary(Path) ->
   open(undefined, [{url, <<"file://", Path/binary>>}|Options]);
 
+open(Name, Path) when is_atom(Name), is_binary(Path) ->
+  open(Name, [{url, <<"file://", Path/binary>>}]);
+
 open(Name, Options) when is_atom(Name) ->
   case Name of
-    undefined -> pulsedb_disk:open(proplists:get_value(url, Options), Options);
-    _ -> pulsedb_worker:start_link(Name, Options)
+    undefined ->
+      {value, {url, URL}, Opts1} = lists:keytake(url, 1, Options),
+      pulsedb_disk:open(URL, Opts1);
+    _ -> 
+      pulsedb_worker:start_link(Name, Options)
   end.
 
 
@@ -167,12 +173,15 @@ stop_collector(Name) ->
 
 -spec info(pulsedb:db()|file:filename()) -> term().
 info(DB) when is_tuple(DB) ->
-  pulsedb_disk:info(DB);
+  (element(2,DB)):info(DB);
 
-info(Path) ->
-  {ok, DB} = pulsedb:open(Path),
+info(Atom) when is_atom(Atom) ->
+  pulsedb_worker:info(Atom);
+
+info(Path) when is_binary(Path) ->
+  {ok, DB} = pulsedb_disk:open(Path, []),
   Info = pulsedb_disk:info(DB),
-  pulsedb:close(DB),
+  pulsedb_disk:close(DB),
   Info.
 
 
