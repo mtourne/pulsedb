@@ -23,7 +23,7 @@ append(Ticks, DB) when is_atom(DB) ->
 
 info(DB) when is_atom(DB) ->
   case whereis(DB) of
-    undefined -> ok;
+    undefined -> [];
     Pid -> info(Pid)
   end;
 
