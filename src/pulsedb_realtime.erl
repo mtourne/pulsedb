@@ -30,13 +30,12 @@ terminate(_,_) ->
 
 handle_cast({subscribe, Pid, Query, Tag}, #subscriptions{clients=Clients0}=State) ->
   erlang:monitor(process, Pid),
-  {Found, Rest} = lists:partition(fun ({Key0,_}) -> Key0 == Query end, Clients0),
-  Clients = case Found of
-    [{Q, Pids0}] ->
-      Pids = lists:ukeysort(1, [{Pid,Tag}|Pids0]),
-      [{Q,Pids} | Rest];
-    _ ->
-      [{Query,[{Pid,Tag}]} | Rest]
+  Clients = case lists:keytake(Query, 1, Clients0) of
+    {value, {Q, UTC, Pids0}, Rest} ->
+      Pids = lists:usort([{Pid,Tag}|Pids0]),
+      [{Q,UTC, Pids} | Rest];
+    false ->
+      [{Query,undefined,[{Pid,Tag}]} | Clients0]
   end,
   
   {noreply, State#subscriptions{clients=Clients}}.
@@ -44,25 +43,30 @@ handle_cast({subscribe, Pid, Query, Tag}, #subscriptions{clients=Clients0}=State
 
 handle_info(tick, #subscriptions{clients=Clients}=State) ->
   T1 = erlang:now(),
-  lists:foreach(fun ({Query,Pids}) ->
-                  {ok, Data,_} = pulsedb:read(Query, memory),
-                  case Data of
-                    [] -> ok;
-                    Data ->
-                      {UTC, V} = lists:last(Data),
-                      [Pid ! {pulse, Tag, UTC, V} || {Pid, Tag}<- Pids]
-                  end                 
-                end,
-                Clients),
+  Clients1 = lists:map(fun({Query,LastUTC,Pids} = Entry) ->
+    case pulsedb:read(Query, memory) of
+      {ok, [], _} -> 
+        Entry;
+      {ok, Data, _} ->
+        {UTC, V} = lists:last(Data),
+        if
+          LastUTC == undefined orelse UTC > LastUTC ->
+            [Pid ! {pulse, Tag, UTC, V} || {Pid, Tag} <- Pids],
+            {Query, UTC, Pids};
+          true ->
+            Entry
+        end                 
+    end
+  end, Clients),
   Delay = calc_delay(1000, T1),
   erlang:send_after(Delay, self(), tick),
-  {noreply, State};
+  {noreply, State#subscriptions{clients = Clients1}};
 
 
 
 handle_info({'DOWN', _, _, Pid, _}, #subscriptions{clients=Clients0}=State) ->
-  Clients = [{Query, lists:delete(Pid, Pids)} 
-             || {Query, Pids} <- Clients0, 
+  Clients = [{Query, UTC, lists:delete(Pid, Pids)} 
+             || {Query, UTC, Pids} <- Clients0, 
              Pids =/= [Pid]],
   {noreply, State#subscriptions{clients=Clients}}.
 
