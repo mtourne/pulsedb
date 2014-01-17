@@ -113,10 +113,6 @@ series_data(SeriesData) ->
 
 
 
-aggregate([{UTC,V1},{UTC,V2}|Ticks]) -> aggregate([{UTC,V1+V2}|Ticks]);
-aggregate([{UTC,V}|Ticks]) -> [{UTC,V}|aggregate(Ticks)];
-aggregate([]) -> [].
-
 
 
 series_name([Hd|Rest]) ->
