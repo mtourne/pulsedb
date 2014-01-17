@@ -12,6 +12,8 @@
 -export([collect/3, collect/4, stop_collector/1]).
 -export([current_second/0, current_minute/0]).
 
+-export([subscribe/1, unsubscribe/1]).
+
 
 
 -spec open(Path::file:filename()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
@@ -72,6 +74,13 @@ close(DB) ->
   end.
 
 
+
+
+subscribe(Query) ->
+  pulsedb_realtime:subscribe(Query).
+
+unsubscribe(Ref) ->
+  pulsedb_realtime:unsubscribe(Ref).
 
 
 

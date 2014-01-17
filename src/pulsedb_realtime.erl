@@ -1,5 +1,5 @@
 -module(pulsedb_realtime).
--export([subscribe/1]).
+-export([subscribe/1, unsubscribe/1]).
 -export([start_link/0, init/1, terminate/2, handle_info/2, handle_cast/2]).
 
 -record(subscriptions, 
@@ -9,7 +9,11 @@
 
 subscribe(Query) ->
   gen_server:cast(?MODULE, {subscribe, self(), Query}).
-  
+
+
+unsubscribe(_) ->
+  error(not_implemented).
+
 
 start_link() -> 
   gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
