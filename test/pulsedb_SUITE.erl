@@ -437,21 +437,24 @@ downsampling(_) ->
 
 replicator(_) ->
   Self = self(),
-  Pid = spawn_link(fun() ->
-    pulsedb:replicate(seconds),
-    receive
-      M -> Self ! {replicated, M}
-    end
-  end),
+  pulsedb:replicate(seconds),
+  List = ets:tab2list(pulsedb_replicators),
+  {seconds,_} = lists:keyfind(self(),2,List),
+  % Pid = spawn_link(fun() ->
+  %   pulsedb:replicate(seconds),
+  %   receive
+  %     M -> Self ! {replicated, M}
+  %   end
+  % end),
 
-  pulsedb:append([{<<"repl">>, 10, 4, []}], memory),
-  pulsedb:append([{<<"repl">>, 12, 4, []}], memory),
+  pulsedb:append([{<<"repl">>, 10, 4, []}], seconds),
+  pulsedb:append([{<<"repl">>, 12, 4, []}], seconds),
 
   receive
-    {replicated, _} -> ok
+    {pulse, _, _, _, _, _} -> ok
   after
     500 -> 
-      ct:pal("msg: ~p", [process_info(self(),messages)]),
+      ct:pal("msg: ~p ~p", [self(), process_info(self(),messages)]),
       error(replication_not_working)
   end,
 

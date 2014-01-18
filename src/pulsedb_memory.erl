@@ -40,7 +40,7 @@ append0({Name,UTC,Value,Tags}, DB) ->
   end,
   Metric = cached_metric_name(Name,Tags),
   ets:insert_new(Table, {{Metric,UTC}, Value}),
-  Pulse = {pulse,DB,Name,UTC-60,Value,Tags},
+  Pulse = {pulse,DB,Name,UTC,Value,Tags},
   [Pid ! Pulse || {_,Pid} <- ets:lookup(pulsedb_replicators, DB)],
   ok.
 
