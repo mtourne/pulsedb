@@ -1,5 +1,5 @@
 -module(pulsedb_realtime).
--export([subscribe/2, unsubscribe/1]).
+-export([subscribe/2, unsubscribe/1, clean_query/1]).
 -export([start_link/0, init/1, terminate/2, handle_info/2, handle_call/3]).
 
 -record(subscriptions, 
@@ -7,7 +7,8 @@
   clients=[] % query_key, {Name,Query}, pids
   }).
 
-subscribe(Query, Tag) ->
+subscribe(Query0, Tag) ->
+  Query = clean_query(Query0),
   gen_server:call(?MODULE, {subscribe, self(), Query, Tag}).
 
 
@@ -91,3 +92,39 @@ find_subscription(Pid, Tag, Pids) ->
   lists:partition(fun ({Pid0,Tag0,_}) ->
                     Pid0 == Pid andalso Tag0 == Tag
                   end, Pids).
+
+clean_query(Query0) ->
+  {Aggregator, Downsampler, Name, Tags0} = pulsedb:parse_query(Query0),
+  Tags = [{K,V} || {K,V} <- Tags0, K =/= from andalso K =/= to],
+  %agg:aggregator ":" ds:downsampler ":" mn:metric_name "{" tags:tags / 
+  Parts = [
+    case Aggregator of 
+      undefined -> <<>>;
+      _ -> <<Aggregator/binary, ":">>
+    end,
+    case Downsampler of
+      {N_,Fn} -> 
+        N = integer_to_binary(N_),
+        <<N/binary,"s-",Fn/binary,":">>;
+      _ -> <<>>
+    end,
+    Name,
+    tags_to_text(lists:usort(Tags))],
+  iolist_to_binary(Parts).
+
+tags_to_text([]) -> <<>>;
+tags_to_text(Tags_) -> 
+  Tags = tags_to_text0(Tags_),
+  <<"{", Tags/binary, "}">>.
+
+tags_to_text0([Tag0]) -> tag_to_text(Tag0);
+tags_to_text0([Tag0|Rest0]) ->
+  Tag = tag_to_text(Tag0),
+  Rest = tags_to_text0(Rest0),
+  <<Tag/binary, ",", Rest/binary>>.
+
+tag_to_text({Tag, Value}) when is_atom(Tag) -> 
+  tag_to_text({atom_to_binary(Tag, latin1), Value});
+tag_to_text({Tag, Value}) when is_binary(Tag) ->
+  <<Tag/binary, "=", Value/binary>>.
+
