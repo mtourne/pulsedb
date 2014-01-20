@@ -29,13 +29,19 @@ terminate(_,_) ->
 
 
 handle_call({subscribe, Pid, Query, Tag},_, #subscriptions{clients=Clients0}=State) ->
-  Monitor = erlang:monitor(process, Pid),
   Clients = case lists:keytake(Query, 1, Clients0) of
     {value, {Q, UTC, Pids0}, Rest} ->
-      Pids = lists:usort([{Pid,Tag,Monitor}|Pids0]),
-      [{Q,UTC, Pids} | Rest];
+      Pids = case find_subscription(Pid, Tag, Pids0) of
+        {[], Pids0} -> 
+          Ref = erlang:monitor(process, Pid),
+          [{Pid, Tag, Ref}|Pids0];
+        _ -> 
+          Pids0
+      end,
+      [{Q,UTC,Pids} | Rest];
     false ->
-      [{Query,undefined,[{Pid,Tag,Monitor}]} | Clients0]
+      Ref = erlang:monitor(process, Pid),
+      [{Query,undefined,[{Pid,Tag,Ref}]} | Clients0]
   end,
   
   {reply, ok, State#subscriptions{clients=Clients}};
@@ -43,9 +49,7 @@ handle_call({subscribe, Pid, Query, Tag},_, #subscriptions{clients=Clients0}=Sta
 
 handle_call({unsubscribe, Pid, Tag},_, #subscriptions{clients=Clients0}=State) ->
   Clients1 = [begin
-                {Demonitor, Rest} = lists:partition(fun ({Pid0,Tag0,_}) ->
-                                                      Pid0 == Pid andalso Tag0 == Tag
-                                                    end, Pids),
+                {Demonitor, Rest} = find_subscription(Pid, Tag, Pids),
                 [erlang:demonitor(Ref) || {_,_,Ref} <- Demonitor],
                 {Query, UTC, Rest}
                 end
@@ -81,3 +85,9 @@ handle_info({'DOWN', _, _, Pid, _}, #subscriptions{clients=Clients0}=State) ->
              || {Query, UTC, Pids} <- Clients0],
   Clients = [C || {Pids,_,_}=C <- Clients1, length(Pids) > 0],
   {noreply, State#subscriptions{clients=Clients}}.
+
+
+find_subscription(Pid, Tag, Pids) ->
+  lists:partition(fun ({Pid0,Tag0,_}) ->
+                    Pid0 == Pid andalso Tag0 == Tag
+                  end, Pids).
