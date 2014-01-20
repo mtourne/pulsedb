@@ -10,6 +10,7 @@ all() ->
 groups() ->
   [{subscribe, [parallel], [
     subscribe,
+    subscribe_twice,
     unsubscribe
   ]}].
 
@@ -30,6 +31,18 @@ subscribe(_) ->
   pulsedb_realtime:subscribe(<<"input">>, i),
   ok = collect_ticks(N,UTC,1200).
 
+
+subscribe_twice(_) ->
+  N = ?TICK_COUNT,
+  {UTC,_} = pulsedb:current_second(),
+  spawn(fun () -> send_tick(N, {<<"input">>, UTC, 10, [{<<"name">>,<<"src1">>}]}) end),
+  pulsedb_realtime:subscribe(<<"input">>, i),
+  pulsedb_realtime:subscribe(<<"input">>, i),
+  ok = collect_ticks(N,UTC,1200),
+  receive
+    _ -> error(received_pulse)
+  after 2000 -> ok 
+  end.
 
 unsubscribe(_) ->
   N = ?TICK_COUNT,
