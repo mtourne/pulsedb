@@ -23,7 +23,8 @@ groups() ->
     % forbid_to_read_after_append,
     % forbid_to_append_after_read,
     % merge,
-    info
+    info,
+    required_dates
   ]}].
 
 
@@ -460,7 +461,24 @@ replicator(_) ->
 
   ok.
 
+required_dates(_) ->
+  {ok, DB0} = pulsedb:open(required_dates_db, <<"test/v2/info">>),
 
+  TicksYesterday = [
+    {<<"input">>, 1390224618,  1, [{name, <<"source1">>}]},
+    {<<"input">>, 1390224619,  2, [{name, <<"source1">>}]}],
+  pulsedb:append(TicksYesterday, required_dates_db),
+
+  TicksToday = [
+    {<<"input">>, 1390292577,  3, [{name, <<"source1">>}]},
+    {<<"input">>, 1390292578,  4, [{name, <<"source1">>}]}],
+  pulsedb:append(TicksToday, required_dates_db),
+  
+  
+  {ok, [{1390224618,  1},
+        {1390224619,  2},
+        {1390292577,  3},
+        {1390292578,  4}], _} = pulsedb:read(<<"input{from=1390224618,to=1390292579}">>, required_dates_db).
 
 
 % merge(_) ->
