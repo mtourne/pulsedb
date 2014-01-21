@@ -26,18 +26,14 @@ Writing data
 
 Pulsedb will create files 
 
-    stats/2013/09/12/config_v1
-    stats/2013/09/12/data_v1
-    stats/2013/09/12/index_v1
+    stats/2013/09/12/config_v3
+    stats/2013/09/12/data_v3
 
 You can delete old files without any problems. It is designed so that data for each day is written independently
 in different folders.
 
-Also you should know that pulsedb is designed for batch write. It is recommended to push data once
-per minute so that pulsedb will be able to compress data.
 
-! Warning! You must always write monotonic increasing timestamps and one source name in one batch.
-
+You can write timestamps in any order. If you want to upload delayed timestamps, no problems: pulsedb will write it.
 
 
 
@@ -50,6 +46,17 @@ Reading data
     {ok, Ticks2, _} = pulsedb:read("sum:1m-avg:output{from=1378950600,to=1378950800,host=host1.local}", my_database).
 
 Syntax of query is like in OpenTSDB
+
+
+
+Subscribing
+-----------
+
+
+
+
+
+
 
 
 
