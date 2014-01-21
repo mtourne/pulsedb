@@ -60,8 +60,11 @@ handle_call({unsubscribe, Pid, Tag},_, #subscriptions{clients=Clients0}=State) -
 
 
 handle_info(tick, #subscriptions{clients=Clients}=State) ->
+  {Now,_} = pulsedb:current_second(),
   Clients1 = lists:map(fun({Query,LastUTC,Pids} = Entry) ->
-    case pulsedb:read(Query, memory) of
+    Q1 = binary:replace(Query,<<"FROM">>,integer_to_binary(Now - 5)),
+    Q2 = binary:replace(Q1,<<"TO">>,integer_to_binary(Now - 4)),
+    case pulsedb:read(Q2, memory) of
       {ok, [], _} -> 
         Entry;
       {ok, Data, _} ->
@@ -95,7 +98,7 @@ find_subscription(Pid, Tag, Pids) ->
 
 clean_query(Query0) ->
   {Aggregator, Downsampler, Name, Tags0} = pulsedb:parse_query(Query0),
-  Tags = [{K,V} || {K,V} <- Tags0, K =/= from andalso K =/= to],
+  Tags = [{K,V} || {K,V} <- Tags0, is_binary(K)] ++ [{<<"from">>,<<"FROM">>},{<<"to">>,<<"TO">>}],
   %agg:aggregator ":" ds:downsampler ":" mn:metric_name "{" tags:tags / 
   Parts = [
     case Aggregator of 
