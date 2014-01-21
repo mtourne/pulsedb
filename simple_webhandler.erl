@@ -20,41 +20,18 @@ main(Argv) ->
 main0([Port_, Path|Args]) ->
   Port = list_to_integer(Port_),
 
-  Auth = case Args of
-    [Key|_] when length(Key) == 16 ->
-      NetAuth = [{key,iolist_to_binary(Key)}],
-      [{auth,pulsedb_netpush_auth,NetAuth}];
-    [] ->
-      []
+  application:load(pulsedb),
+  application:set_env(pulsedb, port, Port),
+  application:set_env(pulsedb, path, Path),
+  case Args of
+    [Key] -> application:set_env(pulsedb, key, Key);
+    [] -> ok
   end,
 
-  ok = application:start(crypto),
-  ok = application:start(asn1),
-  ok = application:start(public_key),
-  ok = application:start(ssl),
-  ok = application:start(ranch),
-  application:start(cowlib),
-  ok = application:start(cowboy),
-  ok = application:start(pulsedb),
-
-  application:load(lager),
-  application:set_env(lager,crash_log,undefined),
-  application:set_env(lager,handlers,[{lager_console_backend,debug}]),
-  ok = lager:start(),
-
-  {ok, _} = pulsedb:open(simple_db, [{url,"file://"++Path}]),
-
-  Dispatch = [{'_', [
-    {"/api/v1/pulse_push", pulsedb_netpush_handler, [{db,simple_db}] ++ Auth},
-    {"/embed/[...]", pulsedb_graphic_handler, [{resolver, {pulsedb_graphic_handler, resolve_embed}}]},
-    {"/js/[...]", cowboy_static, [{directory, "webroot/js"}]}
-  ]}],
-
-  {ok, L} = ranch:start_listener(fake_pulsedb, 1, ranch_tcp, [{port,Port}], cowboy_protocol, [{env, [
-    {dispatch, cowboy_router:compile(Dispatch)}
-  ]}]),
+  {ok, L} = pulsedb_launcher:start(),
   erlang:monitor(process,L),
   receive
     {'DOWN', _, _, L, _} -> ok
   end,
   ok.
+

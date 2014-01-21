@@ -3,3 +3,4 @@ test/temp
 .stockdb_dialyzer.plt
 .*.swp
 logs
+log

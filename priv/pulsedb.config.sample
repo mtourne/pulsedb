@@ -1,0 +1,4 @@
+{key, "1234567890abcdef"}.
+{path, "pulses"}.
+{port, 6800}.
+

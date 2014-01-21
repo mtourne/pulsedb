@@ -8,35 +8,37 @@
 -export([websocket_info/3]).
 -export([websocket_terminate/3]).
 
--export([pulse_data/3, make_queries/1, resolve_embed/2]).
+-export([pulse_data/4, make_queries/1, resolve_embed/2]).
 
 -record(ws_state, {
   pulses
   }).
 
 -record(page_state, {
+  db,
   resolver,
-  embed}).
+  embed
+}).
 
 init({tcp, http}, Req, Opts) -> 
   {Path, Req2} = cowboy_req:path_info(Req),
   case Path of
     [_,<<"events">>] -> {upgrade, protocol, cowboy_websocket};
-    [Embed]        -> {ok, Req2, #page_state{embed=Embed, resolver=proplists:get_value(resolver, Opts)}};
+    [Embed]        -> {ok, Req2, #page_state{db = proplists:get_value(db,Opts), embed=Embed, resolver=proplists:get_value(resolver, Opts)}};
     _              -> {shutdown, Req2, undefined}
   end.
 
 terminate(_,_,_) ->
   ok.
 
-handle(Req, #page_state{resolver={Resolver,Resolve}, embed=Embed}=State) ->
+handle(Req, #page_state{resolver={Resolver,Resolve}, embed=Embed, db = DB}=State) ->
   case erlang:apply(Resolver, Resolve, [Embed, []]) of
     {ok, Title, Queries} ->
       {Path, Req5} = cowboy_req:path(Req),
       WsPath = filename:join([Path,"events"]),
 
       Template = undefined,
-      InitData = page_init_data(Embed, Title, Queries, WsPath),
+      InitData = page_init_data(Embed, Title, Queries, WsPath, DB),
       {ok, Reply} = cowboy_req:reply(200, headers(html), fill_template(Template, InitData), Req5),
       {ok, Reply, State};
     _ -> 
@@ -45,8 +47,16 @@ handle(Req, #page_state{resolver={Resolver,Resolve}, embed=Embed}=State) ->
   end.
       
 
-websocket_init(_Transport, Req, _Opts) -> 
-  {ok, Req, #ws_state{}}.
+websocket_init(_Transport, Req, _Opts) ->
+  {Ip, Req1} = case cowboy_req:header(<<"x-real-ip">>, Req) of
+    {undefined, Req_} ->
+      {{PeerAddr,_}, Req1_} = cowboy_req:peer(Req_),
+      {list_to_binary(inet_parse:ntoa(PeerAddr)), Req1_};
+    {PeerAddr, Req1_} ->
+      {PeerAddr, Req1_}
+  end,
+  put(name, {pulsedb_graph,Ip}),
+  {ok, Req1, #ws_state{}}.
  
 
 websocket_handle({text, Text}, Req, State) ->
@@ -74,11 +84,11 @@ websocket_handle(Data, Req, State) ->
 
 
 
-pulse_data(Embed, Title, Queries) ->
+pulse_data(Embed, Title, Queries, DB) ->
   {History, PulseTokens} = lists:unzip(
   [begin
      {Name, QueryRealtime, QueryHistory} = make_queries(Query),
-     {ok,History1,_} = pulsedb:read(QueryHistory, simple_db),
+     {ok,History1,_} = pulsedb:read(QueryHistory, DB),
      HistoryData = [[T*1000, V] || {T, V} <- History1],
 
      Token = make_ref(),
@@ -126,9 +136,9 @@ websocket_terminate(_Reason, _Req, _State) ->
 
 
 
-page_init_data(Embed, Title, Queries, WsPath) ->
+page_init_data(Embed, Title, Queries, WsPath, DB) ->
   MFA = {?MODULE,pulse_data,
-         [Embed, Title, Queries]},
+         [Embed, Title, Queries, DB]},
   [{title, Title},
    {mfa, pickle(MFA)},
    {ws_path, WsPath}].

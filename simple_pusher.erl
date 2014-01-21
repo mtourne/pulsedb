@@ -4,6 +4,10 @@
 
 -mode(compile).
 
+main([]) ->
+  io:format("simple_pusher.erl pulse://host:port [key-of-16-bytes tag1=value1:tag2=value2]\n"),
+  halt(1);
+
 main([URL|Args]) ->
   application:load(lager),
   application:set_env(lager,crash_log,undefined),
