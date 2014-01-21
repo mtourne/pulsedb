@@ -1,6 +1,6 @@
 
 all:
-	ERL_LIBS=apps:deps erl -make
+	ERL_LIBS=.. erl -make
 
 app:
 	@./rebar compile

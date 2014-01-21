@@ -249,7 +249,8 @@ append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd} = DB) ->
 shift_value(Value) when Value >= 0 andalso Value < 16#4000 -> <<3:2, Value:14>>;
 shift_value(Value) when Value >= 16#1000 andalso Value < 16#400000 -> <<2:2, (Value bsr 10):14>>;
 shift_value(Value) when Value >= 16#1000000 andalso Value < 16#400000000 -> <<1:2, (Value bsr 20):14>>;
-shift_value(Value) when Value >= 16#1000000000 andalso Value < 16#400000000000 -> <<0:2, (Value bsr 30):14>>.
+shift_value(Value) when Value >= 16#1000000000 andalso Value < 16#200000000000 -> <<0:2, 1:1, (Value bsr 30):13>>;
+shift_value(Value) when Value >= 16#1000000000000 andalso Value < 16#200000000000000 -> <<0:2, 0:1, (Value bsr 40):13>>.
 
 
 
@@ -411,7 +412,9 @@ unpack_ticks(<<0:16, Rest/binary>>, UTC) -> unpack_ticks(Rest, UTC+1);
 unpack_ticks(<<3:2, Value:14, Rest/binary>>, UTC) -> [{UTC,Value}|unpack_ticks(Rest, UTC+1)];
 unpack_ticks(<<2:2, Value:14, Rest/binary>>, UTC) -> [{UTC,Value bsl 10}|unpack_ticks(Rest, UTC+1)];
 unpack_ticks(<<1:2, Value:14, Rest/binary>>, UTC) -> [{UTC,Value bsl 20}|unpack_ticks(Rest, UTC+1)];
-unpack_ticks(<<0:2, Value:14, Rest/binary>>, UTC) -> [{UTC,Value bsl 30}|unpack_ticks(Rest, UTC+1)].
+unpack_ticks(<<0:2, 1:1, Value:13, Rest/binary>>, UTC) -> [{UTC,Value bsl 30}|unpack_ticks(Rest, UTC+1)];
+unpack_ticks(<<0:2, 0:1, Value:13, Rest/binary>>, UTC) -> [{UTC,Value bsl 40}|unpack_ticks(Rest, UTC+1)].
+
 
 
 
