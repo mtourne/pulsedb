@@ -181,5 +181,7 @@ make_queries(Query0, Account) ->
    pulsedb_query:render(QueryHistory)}.
 
 
-resolve_embed(_Embed, _Opts) ->
-  {ok, <<"Test embed">>, <<"max@erlyvideo.org">>, [<<"media_output">>]}.
+resolve_embed(Embed, _Opts) ->
+  Query = pulsedb_query:parse(Embed),
+  Account = pulsedb_query:tag(<<"account">>, Query),
+  {ok, <<"test embed">>, Account, [Embed]}.
