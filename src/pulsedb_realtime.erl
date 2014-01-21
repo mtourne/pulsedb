@@ -61,6 +61,7 @@ handle_call({unsubscribe, Pid, Tag},_, #subscriptions{clients=Clients0}=State) -
 
 handle_info(tick, #subscriptions{clients=Clients}=State) ->
   {Now,_} = pulsedb:current_second(),
+  T1 = os:timestamp(),
   Clients1 = lists:map(fun({Query,LastUTC,Pids} = Entry) ->
     Q1 = binary:replace(Query,<<"FROM">>,integer_to_binary(Now - 5)),
     Q2 = binary:replace(Q1,<<"TO">>,integer_to_binary(Now - 4)),
@@ -68,16 +69,19 @@ handle_info(tick, #subscriptions{clients=Clients}=State) ->
       {ok, [], _} -> 
         Entry;
       {ok, Data, _} ->
-        {UTC, V} = lists:last(Data),
+        Data1 = [{UTC,V} || {UTC,V} <- Data, UTC > LastUTC orelse LastUTC == undefined],
         if
-          LastUTC == undefined orelse UTC > LastUTC ->
-            [Pid ! {pulse, Tag, UTC, V} || {Pid,Tag,_} <- Pids],
-            {Query, UTC, Pids};
+          Data1 == [] ->
+            Entry;
           true ->
-            Entry
+            {Last,_} = lists:last(Data1),
+            [Pid ! {pulse, Tag, UTC, V} || {Pid,Tag,_} <- Pids, {UTC,V} <- Data1],
+            {Query, Last, Pids}
         end                 
     end
   end, Clients),
+  T2 = os:timestamp(),
+  lager:debug("tick took ~B us", [timer:now_diff(T2,T1)]),
   {_,Delay} = pulsedb:current_second(),
   erlang:send_after(Delay, self(), tick),
   {noreply, State#subscriptions{clients = Clients1}};
