@@ -1,6 +1,6 @@
 #!/usr/bin/env escript
 %%
-%%! -env ERL_LIBS .. -pa ebin
+%%! -env ERL_LIBS ..:deps -pa ebin
 
 -mode(compile).
 
@@ -33,7 +33,7 @@ main0([Port_, Path|Args]) ->
   ok = application:start(public_key),
   ok = application:start(ssl),
   ok = application:start(ranch),
-  ok = application:start(cowlib),
+  application:start(cowlib),
   ok = application:start(cowboy),
   ok = application:start(pulsedb),
 

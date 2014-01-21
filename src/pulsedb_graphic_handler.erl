@@ -50,10 +50,7 @@ websocket_init(_Transport, Req, _Opts) ->
  
 
 websocket_handle({text, Text}, Req, State) ->
-  Arg = try {'text:json', jsx:decode(Text)}
-  catch _:_ -> {'text:other', Text} 
-  end,
-  websocket_handle(Arg, Req, State);
+  websocket_handle({'text:json', jsx:decode(Text)}, Req, State);
 
 websocket_handle({'text:json', Json}=Data, Req, #ws_state{}=State) ->
   case proplists:get_value(<<"mfa">>, Json) of
