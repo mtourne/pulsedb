@@ -28,19 +28,19 @@ main0([Port_, Path|Args]) ->
       []
   end,
 
-  application:start(crypto),
-  application:start(asn1),
-  application:start(public_key),
-  application:start(ssl),
-  application:start(ranch),
-  application:start(cowlib),
-  application:start(cowboy),
-  application:start(pulsedb),
+  ok = application:start(crypto),
+  ok = application:start(asn1),
+  ok = application:start(public_key),
+  ok = application:start(ssl),
+  ok = application:start(ranch),
+  ok = application:start(cowlib),
+  ok = application:start(cowboy),
+  ok = application:start(pulsedb),
 
   application:load(lager),
   application:set_env(lager,crash_log,undefined),
   application:set_env(lager,handlers,[{lager_console_backend,debug}]),
-  lager:start(),
+  ok = lager:start(),
 
   {ok, _} = pulsedb:open(simple_db, [{url,"file://"++Path}]),
 
