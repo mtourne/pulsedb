@@ -42,11 +42,8 @@ to_hex(Bin) ->
 
 to_hex(<<>>, Acc) ->  Acc;
 to_hex(<<I, Bin/binary>>, Acc) ->
-  C = case erlang:integer_to_binary(I,16) of
-    <<C1>> -> <<0,C1/binary>>;
-    <<C1:2/binary>> -> C1
-  end,
-  to_hex(Bin, <<Acc/binary, (C)/binary>>).
+  C = iolist_to_binary(string:to_lower(lists:flatten(io_lib:format("~2.16.0B", [I])))),
+  to_hex(Bin, <<Acc/binary, C/binary>>).
 
 
 

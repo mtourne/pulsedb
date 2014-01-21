@@ -44,12 +44,18 @@ open0(URL, Options) ->
     undefined -> [];
     K -> ["Pulsedb-Api-Key: ", K, "\r\n"]
   end,
-  ok = Transport:send(Socket, ["CONNECT ", Path, " HTTP/1.1\r\n",
+
+  ConnectCmd = ["CONNECT ", Path, " HTTP/1.1\r\n",
     "Host: ", Host, "\r\n",
     ApiKey,
     "Connection: Upgrade\r\n"
     "Upgrade: application/timeseries-text\r\n"
-    "\r\n"]),
+    "\r\n"
+  ],
+
+  lager:debug("Connecting to pulsedb server:\n~s", [ConnectCmd]),
+
+  ok = Transport:send(Socket, ConnectCmd),
   case Transport:recv(Socket, 0, 5000) of
     {ok, {http_response, _, 101, _}} -> ok;
     {ok, {http_response, _, 403, _}} -> Transport:close(Sock), throw({error, denied});
