@@ -240,8 +240,10 @@ decode_config(<<>>, _, _) ->
 
 
 metric_name(Name, Tags) ->
- iolist_to_binary([Name, [[":",K,"=",V] ||  {K,V} <- lists:sort(Tags)]]).
+ iolist_to_binary([to_b(Name), [[":",to_b(K),"=",to_b(V)] ||  {K,V} <- lists:sort(Tags)]]).
 
+to_b(Atom) when is_atom(Atom) -> atom_to_binary(Atom, latin1);
+to_b(Bin) when is_binary(Bin) -> Bin.
 
 append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd} = DB) ->
   #disk_db{sources = Sources} = DB1 = open_hour_if_required(SourceId, UTC, DB),
