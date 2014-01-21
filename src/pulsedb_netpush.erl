@@ -72,8 +72,10 @@ append([], #netpush{} = DB) ->
   {ok, DB};
 
 append([Tick|Ticks], #netpush{} = DB) ->
-  {ok, DB1} = append(Tick, DB),
-  append(Ticks, DB1);
+  case append(Tick, DB) of
+    {ok, DB1} -> append(Ticks, DB1);
+    {error, Error} -> {error, Error}
+  end;
 
 append({Name, UTC, Value, Tags}, #netpush{metrics = Metrics, transport = T, socket = Socket, utc = UTC0} = DB) ->
   {Metrics1, Id} = case lists:keyfind({Name,Tags}, 1, Metrics) of
