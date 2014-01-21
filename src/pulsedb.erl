@@ -34,8 +34,12 @@ open(Name, Path) when is_atom(Name), is_binary(Path) ->
 open(Name, Options) when is_atom(Name) ->
   case Name of
     undefined ->
-      {value, {url, URL}, Opts1} = lists:keytake(url, 1, Options),
-      pulsedb_disk:open(URL, Opts1);
+      {value, {url, URL_}, Opts1} = lists:keytake(url, 1, Options),
+      URL = iolist_to_binary(URL_),
+      case URL of
+        <<"file://", _/binary>> -> pulsedb_disk:open(URL, Opts1);
+        <<"pulse://", _/binary>> -> pulsedb_netpush:open(URL, Opts1)
+      end;
     _ -> 
       pulsedb_worker:start_link(Name, Options)
   end.
@@ -113,7 +117,7 @@ read(Name, Query, DB) ->
     DB == memory -> pulsedb_memory:read(Name, Query1, seconds);
     DB == seconds orelse DB == minutes -> pulsedb_memory:read(Name, Query1, DB);
     is_atom(DB) -> pulsedb_worker:read(Name, Query1, DB);
-    is_tuple(DB) -> pulsedb_disk:read(Name, Query1, DB)
+    is_tuple(DB) -> (element(2,DB)):read(Name, Query1, DB)
   end.
 
 

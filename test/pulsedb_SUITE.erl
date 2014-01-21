@@ -11,6 +11,7 @@ groups() ->
   [{append_and_read, [parallel], [
     append_and_read,
     worker_append_and_read,
+    netpush_append,
     worker_cleanup,
     parse_query,
     collector,
@@ -30,13 +31,29 @@ groups() ->
 
 
 init_per_suite(Config) ->
-  application:load(pulsedb),
-  application:set_env(pulsedb,ticks_per_hour,60000),
-  application:start(pulsedb),
-  Config.
+  Apps = [pulsedb,crypto,asn1,public_key,ssl,ranch,cowlib,cowboy],
+  [{ok,App} = {application:start(App),App} || App <- Apps],
+
+  R = [{apps,Apps}],
+  {ok, Pid} = pulsedb:open(netpush_db, [{url, "file://test/v3/netpush_db"}]),
+  unlink(Pid),
+
+
+  Port = 6801,
+  Dispatch = [{'_', [
+    {"/api/v1/pulse_push", pulsedb_netpush_handler, [{db,netpush_db}]}
+  ]}],
+  {ok, L} = ranch:start_listener(fake_pulsedb, 1, ranch_tcp, [{port,Port}], cowboy_protocol, [{env, [
+    {dispatch, cowboy_router:compile(Dispatch)}
+  ]}]),
+
+  [{r,R}|Config].
 
 
 end_per_suite(Config) ->
+  erlang:exit(whereis(netpush_db),shutdown),
+  R = proplists:get_value(r,Config),
+  [application:stop(App) || App <- lists:reverse(proplists:get_value(apps,R))],
   Config.
 
 
@@ -189,7 +206,87 @@ worker_append_and_read(_) ->
 
   pulsedb:close(DB1),
 
-  os:cmd("rm -rf test/v3/worker_rw/1970/01/01"),
+  ok.
+
+
+
+
+netpush_append(_) ->
+  {ok, DB1} = pulsedb:open(netpush_client, [{url, "pulse://localhost:6801/"}]),
+
+  Ticks1 = [
+    {<<"input">>, 120, 6, [{name, <<"source1">>}]},
+    {<<"input">>, 120, 2, [{name, <<"source2">>}]},
+    {<<"input">>, 130, 10, [{name, <<"source1">>}]},
+    {<<"input">>, 140, 3, [{name, <<"source1">>}]}
+  ],
+  pulsedb:append(Ticks1, netpush_client),
+
+  Ticks2 = [
+    {<<"input">>, 4000121, 5, [{name, <<"source1">>}]},
+    {<<"input">>, 4000122, 10, [{name, <<"source1">>}]},
+    {<<"input">>, 4000122, 4, [{name, <<"source2">>}]},
+    {<<"input">>, 4000123, 3, [{name, <<"source1">>}]}
+  ],
+  pulsedb:append(Ticks2, netpush_client),
+
+  {ok, [
+    {120,6},
+    {130,10},
+    {140,3},
+    {4000121,5},
+    {4000122,10},
+    {4000123,3}
+  ], _} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1971-02-02"}], netpush_client),
+
+
+  {ok, [
+    {120,6},
+    {130,10},
+    {140,3}
+  ], _} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], netpush_client),
+
+  {ok, [
+    {120,8},
+    {130,10},
+    {140,3},
+    {4000121,5},
+    {4000122,14},
+    {4000123,3}
+  ], _} = pulsedb:read(<<"input">>, [{from, "1970-01-01"},{to,"1971-01-02"}], netpush_client),
+
+
+  {ok, [
+    {120,6},
+    {130,10},
+    {140,3}
+  ], _} = pulsedb:read(<<"sum:input{name=source1,from=1970-01-01,to=1970-01-02}">>, netpush_client),
+
+  {ok, [
+    {120,8},
+    {130,10},
+    {140,3}
+  ], _} = pulsedb:read(<<"sum:input{from=1970-01-01,to=1970-01-02}">>, netpush_client),
+
+  {ok, [
+    {120,6},
+    {130,10},
+    {140,3}
+  ], _} = pulsedb:read(<<"max:input{from=1970-01-01,to=1970-01-02}">>, netpush_client),
+
+  {ok, [
+    {120,4},
+    {130,10},
+    {140,3}
+  ], _} = pulsedb:read(<<"avg:input{from=1970-01-01,to=1970-01-02}">>, netpush_client),
+
+  {ok, [
+  ], _} = pulsedb:read(<<"avg:input">>, netpush_client),
+
+
+
+  pulsedb:close(netpush_client),
+
   ok.
 
 

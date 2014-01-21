@@ -1,4 +1,5 @@
 -module(pulsedb_netpush_handler).
+-author('Max Lapshin <max@maxidoors.ru>').
 
 % comment it to compile without cowboy
 %-behaviour(cowboy_http_handler).

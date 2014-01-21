@@ -1,2 +1,87 @@
 -module(pulsedb_netpush).
+-author('Max Lapshin <max@maxidoors.ru>').
+
+-export([open/2, append/2, read/3, close/1]).
+
+
+
+-record(netpush, {
+  storage = ?MODULE,
+  url,
+  socket,
+  metrics = [],
+  utc
+}).
+
+
+open(URL, _Options) ->
+  {ok, {pulse, _, Host, Port, _, _}} = http_uri:parse(binary_to_list(URL)),
+  {ok, Sock} = gen_tcp:connect(Host, Port, [binary,{active,false},{packet,http},{send_timeout,5000}], 5000),
+  Path = "/api/v1/pulse_push",
+
+
+  ok = gen_tcp:send(Sock, ["CONNECT ", Path, " HTTP/1.1\r\n",
+    "Host: ", Host, "\r\n",
+    "Connection: Upgrade\r\n"
+    "Upgrade: application/timeseries-text\r\n"
+    "\r\n"]),
+  {ok, {http_response, _, 101, _}} = gen_tcp:recv(Sock, 0),
+  fetch_headers(Sock),
+  inet:setopts(Sock, [{packet,line}]),
+  {ok, #netpush{url = URL, socket = Sock}}.
+
+
+
+append([], #netpush{} = DB) ->
+  {ok, DB};
+
+append([Tick|Ticks], #netpush{} = DB) ->
+  {ok, DB1} = append(Tick, DB),
+  append(Ticks, DB1);
+
+append({Name, UTC, Value, Tags}, #netpush{metrics = Metrics, socket = Socket, utc = UTC0} = DB) ->
+  {Metrics1, Id} = case lists:keyfind({Name,Tags}, 1, Metrics) of
+    false ->
+      Metric = pulsedb_disk:metric_name(Name, Tags),
+      I = integer_to_binary(length(Metrics)),
+      ok = gen_tcp:send(Socket, ["metric ", I," ", Metric, "\n"]),
+      {[{{Name,Tags}, I}|Metrics], I};
+    {_,I} ->
+      {Metrics, I}
+  end,
+  UTCDelta = case UTC0 of
+    undefined ->
+      ok = gen_tcp:send(Socket, ["utc ", integer_to_binary(UTC),"\n"]),
+      <<"0">>;
+    _ ->
+      integer_to_binary(UTC - UTC0)
+  end,
+  ok = gen_tcp:send(Socket, [Id, " ", UTCDelta, " ", shift_value(Value), "\n"]),
+  {ok, DB#netpush{metrics = Metrics1, utc = UTC}}.
+
+
+read(_Name, _Query, #netpush{} = DB) ->
+  {ok, [], DB}.
+
+
+close(#netpush{socket = Socket} = DB) ->
+  gen_tcp:close(Socket),
+  {ok, DB}.
+
+
+
+
+
+shift_value(Value) when Value >= 0 andalso Value < 16#4000 -> integer_to_list(Value);
+shift_value(Value) when Value >= 16#1000 andalso Value < 16#400000 -> integer_to_list(Value bsr 10)++"K";
+shift_value(Value) when Value >= 16#1000000 andalso Value < 16#400000000 -> integer_to_list(Value bsr 20)++"M";
+shift_value(Value) when Value >= 16#1000000000 andalso Value < 16#200000000000 -> integer_to_list(Value bsr 30)++"G";
+shift_value(Value) when Value >= 16#1000000000000 andalso Value < 16#200000000000000 -> integer_to_list(Value bsr 40)++"T".
+
+
+fetch_headers(Sock) ->
+  case gen_tcp:recv(Sock, 0) of
+    {ok, http_eoh} -> ok;
+    {ok, {http_header, _, _, _, _}} -> fetch_headers(Sock)
+  end.
 
