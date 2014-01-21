@@ -8,7 +8,7 @@
 -export([websocket_info/3]).
 -export([websocket_terminate/3]).
 
--export([pulse_data/4, make_queries/2, resolve_embed/2]).
+-export([pulse_data/3, make_queries/1, resolve_embed/2]).
 
 -record(ws_state, {
   pulses
@@ -31,12 +31,12 @@ terminate(_,_,_) ->
 
 handle(Req, #page_state{resolver={Resolver,Resolve}, embed=Embed}=State) ->
   case erlang:apply(Resolver, Resolve, [Embed, []]) of
-    {ok, Title, Account, Queries} ->
+    {ok, Title, Queries} ->
       {Path, Req5} = cowboy_req:path(Req),
       WsPath = filename:join([Path,"events"]),
 
       Template = undefined,
-      InitData = page_init_data(Embed, Title, Account, Queries, WsPath),
+      InitData = page_init_data(Embed, Title, Queries, WsPath),
       {ok, Reply} = cowboy_req:reply(200, headers(html), fill_template(Template, InitData), Req5),
       {ok, Reply, State};
     _ -> 
@@ -74,10 +74,10 @@ websocket_handle(Data, Req, State) ->
 
 
 
-pulse_data(Embed, Title, Account, Queries) ->
+pulse_data(Embed, Title, Queries) ->
   {History, PulseTokens} = lists:unzip(
   [begin
-     {Name, QueryRealtime, QueryHistory} = make_queries(Query,Account),
+     {Name, QueryRealtime, QueryHistory} = make_queries(Query),
      {ok,History1,_} = pulsedb:read(QueryHistory, simple_db),
      HistoryData = [[T*1000, V] || {T, V} <- History1],
 
@@ -126,9 +126,9 @@ websocket_terminate(_Reason, _Req, _State) ->
 
 
 
-page_init_data(Embed, Title, Account, Queries, WsPath) ->
+page_init_data(Embed, Title, Queries, WsPath) ->
   MFA = {?MODULE,pulse_data,
-         [Embed, Title, Account, Queries]},
+         [Embed, Title, Queries]},
   [{title, Title},
    {mfa, pickle(MFA)},
    {ws_path, WsPath}].
@@ -166,12 +166,12 @@ depickle(Encoded) ->
   erlang:binary_to_term(Bin).
 
 
-make_queries(Query0, Account) ->
+make_queries(Query0) ->
   {Now,_} = pulsedb:current_second(),
   {_,_,Name,_} = Query1 = pulsedb_query:parse(Query0),
   
-  Query2 = pulsedb_query:remove_tag([from, to, <<"account">>], Query1),
-  QueryRealtime = pulsedb_query:add_tag({account, Account}, Query2),
+  Query2 = pulsedb_query:remove_tag([from, to], Query1),
+  QueryRealtime = Query2,
   QueryHistory = pulsedb_query:add_tag({from, Now-360}, QueryRealtime),
   {Name,
    pulsedb_query:render(QueryRealtime),
@@ -179,6 +179,4 @@ make_queries(Query0, Account) ->
 
 
 resolve_embed(Embed, _Opts) ->
-  Query = pulsedb_query:parse(Embed),
-  Account = pulsedb_query:tag(<<"account">>, Query),
-  {ok, <<"test embed">>, Account, [Embed]}.
+  {ok, <<"test embed">>, [Embed]}.
