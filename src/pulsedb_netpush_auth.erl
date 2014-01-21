@@ -14,9 +14,9 @@ auth(Headers, Args) ->
     {_, HexCipher} when byte_size(Secret) == 16 ->
       Cipher = from_hex(HexCipher),
       C1 = crypto:stream_init(aes_ctr, Secret, ivec()),
-      {_, AuthInfo1} = crypto:stream_decrypt(C1, Cipher),
-      <<"t:", AuthInfo/binary>> = AuthInfo1,
-      Tags = [ list_to_tuple(binary:split(T,<<"=">>)) || T <- binary:split(AuthInfo, <<":">>, [global]) ],
+      {_, AuthInfo} = crypto:stream_decrypt(C1, Cipher),
+      <<"t", _/binary>> = AuthInfo,
+      Tags = [ list_to_tuple(binary:split(T,<<"=">>)) || T <- binary:split(AuthInfo, <<":">>, [global]),  T =/= <<"t">> ],
       {ok, Tags};
     {_, _} when Secret == undefined ->
       lager:error("Unconfigured ~p, need to specify key in args", [?MODULE]),

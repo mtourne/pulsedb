@@ -117,7 +117,7 @@ close(#netpush{socket = Socket} = DB) ->
 
 
 shift_value(Value) when Value >= 0 andalso Value < 16#4000 -> integer_to_list(Value);
-shift_value(Value) when Value >= 16#1000 andalso Value < 16#400000 -> integer_to_list(Value bsr 10)++"K";
+shift_value(Value) when Value >= 16#1000 andalso Value < 16#4000000 -> integer_to_list(Value bsr 10)++"K";
 shift_value(Value) when Value >= 16#1000000 andalso Value < 16#400000000 -> integer_to_list(Value bsr 20)++"M";
 shift_value(Value) when Value >= 16#1000000000 andalso Value < 16#200000000000 -> integer_to_list(Value bsr 30)++"G";
 shift_value(Value) when Value >= 16#1000000000000 andalso Value < 16#200000000000000 -> integer_to_list(Value bsr 40)++"T".
