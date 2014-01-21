@@ -24,7 +24,6 @@ groups() ->
     replicator,
     % forbid_to_read_after_append,
     % forbid_to_append_after_read,
-    % merge,
     info,
     required_dates,
     query_mutation
@@ -143,8 +142,6 @@ append_and_read(_) ->
     {4000122,14},
     {4000123,3}
   ], ReadDB4} = pulsedb:read(<<"input">>, [{from, "1970-01-01"},{to,"1971-01-02"}], ReadDB3),
-
-  os:cmd("rm -rf test/v3/pulse_rw/1970/01/01"),
 
   % {ok, R1} = pulsedb:open("test/v2/pulse_rw"),
   % {ok, Ticks2, R2} = pulsedb:read([{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-04"}], R1),
@@ -418,7 +415,9 @@ info(_) ->
     {<<"output">>, 22,  2, [{name, <<"source1">>}]},
    
     {<<"input">>,  23,  3, [{name, <<"source1">>}]},
-    {<<"output">>, 23,  6, [{name, <<"source1">>}]}],
+    {<<"output">>, 23,  6, [{name, <<"source1">>}]}
+  ],
+
   pulsedb:append(Ticks1, test_info_db),
 
   Ticks2 = [
@@ -429,8 +428,11 @@ info(_) ->
     {<<"y">>, 22,  2, [{name, <<"source2">>}, {host, <<"t2">>}]},
    
     {<<"x">>, 23,  3, [{name, <<"source2">>}, {host, <<"t1">>}]},
-    {<<"y">>, 23,  6, [{name, <<"source2">>}, {host, <<"t1">>}]}],
+    {<<"y">>, 23,  6, [{name, <<"source2">>}, {host, <<"t1">>}]}
+  ],
+
   pulsedb:append(Ticks2, test_info_db),
+  pulsedb:sync(test_info_db),
 
   {ok, DB1} = pulsedb:open(<<"test/v2/info">>),
 
@@ -627,7 +629,7 @@ replicator(_) ->
   ok.
 
 required_dates(_) ->
-  {ok, DB0} = pulsedb:open(required_dates_db, <<"test/v2/info">>),
+  {ok, DB0} = pulsedb:open(required_dates_db, <<"test/v3/required_dates">>),
 
   TicksYesterday = [
     {<<"input">>, 1390224618,  1, [{name, <<"source1">>}]},
@@ -646,33 +648,6 @@ required_dates(_) ->
         {1390292578,  4}], _} = pulsedb:read(<<"input{from=1390224618,to=1390292579}">>, required_dates_db).
 
 
-% merge(_) ->
-%   {ok, DB0} = pulsedb:open("test/v2/merge"),
-
-%   Ticks1 = [
-%     #tick{name = <<"source1">>, utc = 21, value = [{input,5},{output,0}]},
-%     #tick{name = <<"source1">>, utc = 22, value = [{input,10},{output,2}]},
-%     #tick{name = <<"source1">>, utc = 23, value = [{input,3},{output,6}]}
-%   ],
-%   {ok, DB1} = pulsedb:append(Ticks1, DB0),
-
-%   Ticks2 = [
-%     #tick{name = <<"source1">>, utc = 11, value = [{input,5},{output,0}]},
-%     #tick{name = <<"source1">>, utc = 12, value = [{input,10},{output,2}]},
-%     #tick{name = <<"source1">>, utc = 13, value = [{input,3},{output,6}]},
-%     #tick{name = <<"source1">>, utc = 21, value = [{input,5},{output,0}]},
-%     #tick{name = <<"source1">>, utc = 22, value = [{input,10},{output,2}]}
-%   ],
-%   {ok, 3, DB2} = pulsedb:merge(Ticks2, DB1),
-%   pulsedb:close(DB2),
-
-
-%   Ticks3 = lists:sublist(Ticks2,1,3)++Ticks1,
-%   {ok, DB3} = pulsedb:open("test/v2/merge"),
-%   {ok, Ticks3, DB4} = pulsedb:read([{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], DB3),
-%   pulsedb:close(DB4),
-
-%   ok.
 
 query_mutation(_) ->
   Q1s = <<"sum:10s-avg:ds{from=0,to=1800}">>,
@@ -693,3 +668,14 @@ query_mutation(_) ->
   Q5_ = pulsedb_query:remove_tag([from, to], Q1),
   Q5 = pulsedb_query:add_tag([{account, "test@email.com"}, {from, 123}], Q5_),
   <<"sum:10s-avg:ds{account=test@email.com,from=123}">> = pulsedb_query:render(Q5).
+
+
+
+
+
+
+
+
+
+
+
