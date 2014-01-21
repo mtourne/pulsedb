@@ -70,10 +70,16 @@ start() ->
     _ -> 
       []
   end,
+
+  StaticDir = case application:get_key(cowboy,vsn) of
+    {ok, "0.9."++_} -> {dir, "webroot/js", [{mimetypes, cow_mimetypes, web}]};
+    {ok, "0.8."++_} -> [{directory, "webroot/js"}]
+  end,
+  
   Dispatch = [{'_', [
     {"/api/v1/pulse_push", pulsedb_netpush_handler, [{db,simple_db}] ++ Auth},
     {"/embed/[...]", pulsedb_graphic_handler, [{db,simple_db}, {resolver, {pulsedb_graphic_handler, resolve_embed}}]},
-    {"/js/[...]", cowboy_static, [{directory, "webroot/js"}]}
+    {"/js/[...]", cowboy_static, StaticDir}
   ]}],
 
   case application:get_env(pulsedb, port) of

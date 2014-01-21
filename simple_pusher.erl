@@ -25,9 +25,10 @@ main([URL|Args]) ->
   {ok, DB} = pulsedb_netpush:open(list_to_binary(URL), Auth),
 
 
+  {Now, _} = pulsedb:current_second(),
 
   T1 = erlang:now(),
-  DB1 = push(1, 1390288134, DB),
+  DB1 = push(1, Now - 100, DB),
   T2 = erlang:now(),
   pulsedb_netpush:close(DB1),
   io:format("Pushed 24 hours during ~B us\n", [timer:now_diff(T2,T1)]),

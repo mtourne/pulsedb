@@ -11,8 +11,9 @@
 -export([pulse_data/4, make_queries/1, resolve_embed/2]).
 
 -record(ws_state, {
+  last_utc = [],
   pulses
-  }).
+}).
 
 -record(page_state, {
   db,
@@ -85,24 +86,30 @@ websocket_handle(Data, Req, State) ->
 
 
 pulse_data(Embed, Title, Queries, DB) ->
-  {History, PulseTokens} = lists:unzip(
+  {History, PulseTokens, LastUTCs1} = lists:unzip3(
   [begin
-     {Name, QueryRealtime, QueryHistory} = make_queries(Query),
-     {ok,History1,_} = pulsedb:read(QueryHistory, DB),
-     HistoryData = [[T*1000, V] || {T, V} <- History1],
+    {Name, QueryRealtime, QueryHistory} = make_queries(Query),
+    {ok,History1,_} = pulsedb:read(QueryHistory, DB),
+    HistoryData = [[T*1000, V] || {T, V} <- History1],
 
-     Token = make_ref(),
-     pulsedb:subscribe(QueryRealtime, Token),
-     lager:info("Subscribed websocket to pulse [~p]~s", [Embed, QueryRealtime]),
+    Token = make_ref(),
+    pulsedb:subscribe(QueryRealtime, Token),
+    lager:info("Subscribed websocket to pulse [~p]~s", [Embed, QueryRealtime]),
      
-     Link = {Name, Token},
-     History2 = [{name,Name},{data, HistoryData}],
+    Link = {Name, Token},
+    History2 = [{name,Name},{data, HistoryData}],
+
+    LastUTC = case History1 of
+      [] -> undefined;
+      _ -> [{Token, element(1,lists:last(History1)) }]
+    end,
      
-     {History2, Link}
-     end
+     {History2, Link, LastUTC}
+    end
    || Query <- Queries]),
-         
   
+  
+  LastUTCs = [L || L <- LastUTCs1, is_tuple(L)],
   Config = [
     {title, Title},
     {legend, true},
@@ -110,18 +117,23 @@ pulse_data(Embed, Title, Queries, DB) ->
     {navigator, true}
   ],
   Reply = [{init, true}, {options, Config}, {data, History}],
-  {ok, Reply, #ws_state{pulses=PulseTokens}}.
+  {ok, Reply, #ws_state{pulses=PulseTokens, last_utc = LastUTCs}}.
 
 
 
-websocket_info({pulse, Token, UTC, Value}, Req, #ws_state{pulses=Pulses}=State) ->
+websocket_info({pulse, Token, UTC, Value}, Req, #ws_state{pulses=Pulses, last_utc = LastUTCs}=State) ->
   case lists:keyfind(Token, 2, Pulses) of
     false -> 
       {noreply, State};
     {Name,Token} ->
-      Points = [UTC*1000,Value],
-      Prepared = [{shift,true}, {Name, [Points]}],
-      {reply, {text, jsx:encode(Prepared)}, Req, State}
+      case lists:keyfind(Token, 1, LastUTCs) of
+        {_, LastUTC} when LastUTC - UTC >= 0 ->
+          {noreply, State};
+        _ ->
+          Points = [UTC*1000,Value],
+          Prepared = [{shift,true}, {Name, [Points]}],
+          {reply, {text, jsx:encode(Prepared)}, Req, State}
+      end
   end;
 
 
