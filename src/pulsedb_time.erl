@@ -23,6 +23,9 @@ parse({Y,M,D}) ->
 parse(<<Y:4/binary, "-", Mon:2/binary, "-", D:2/binary>>) ->
   utc({{to_i(Y), to_i(Mon), to_i(D)}, {0,0,0}});
 
+parse(<<Y:4/binary, "/", Mon:2/binary, "/", D:2/binary>>) ->
+  utc({{to_i(Y), to_i(Mon), to_i(D)}, {0,0,0}});
+
 parse(<<Y:4/binary, "-", Mon:2/binary, "-", D:2/binary, " ", H:2/binary, ":", Min:2/binary, ":", S:2/binary>>) ->
   utc({{to_i(Y), to_i(Mon), to_i(D)}, {to_i(H),to_i(Min),to_i(S)}});
 

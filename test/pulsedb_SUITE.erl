@@ -17,7 +17,7 @@ groups() ->
     collector_with_backend,
     collector_with_dead_backend,
     collector_to_minute,
-    autohealing,
+    % autohealing,
     downsampling,
     replicator,
     % forbid_to_read_after_append,

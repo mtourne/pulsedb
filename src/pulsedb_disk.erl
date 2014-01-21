@@ -7,13 +7,10 @@
 -record(source, {
   id :: non_neg_integer(),
   name :: source_name(),
-  is_64bit = true :: boolean(),
   original_name :: source_name(),
   original_tags :: list(),
-  data_offset :: non_neg_integer(),
-  data_offset_ptr :: non_neg_integer(),
-  start_of_block :: non_neg_integer(),
-  end_of_block :: non_neg_integer()
+  offsets_offset :: non_neg_integer(),
+  block_offsets = [] :: non_neg_integer()
 }).
 
 -type source() :: #source{}.
@@ -26,8 +23,6 @@
   date :: binary() | undefined,
   sources :: [source()],
   cached_source_names = [],
-
-  ticks = 3600,
 
   mode :: undefined | read | append,
 
@@ -50,31 +45,20 @@ open(Path, Options) when is_list(Path) ->
   open(iolist_to_binary(Path), Options);
 open(<<"file://", Path/binary>>, Options) ->
   open(Path, Options);
-open(Path, Options) when is_binary(Path) ->
-  TicksPerHour = case proplists:get_value(ticks_per_hour, Options) of
-    undefined ->
-      case proplists:get_value(precision, Options) of
-        ms -> 3600000;
-        sec -> 3600;
-        min -> 60;
-        undefined -> 3600
-      end;
-    T when is_integer(T) ->
-      T
-  end,
-  {ok, #disk_db{path = Path, ticks = TicksPerHour}}.
+open(Path, _Options) when is_binary(Path) ->
+  {ok, #disk_db{path = Path}}.
 
 
 open0(#disk_db{path = Path, config_fd = undefined, date = Date} = DB, Mode) when Date =/= undefined ->
-  case filelib:is_regular(filename:join([Path,Date,config_v3])) of
+  case filelib:is_regular(filename:join([Path,Date,config_v4])) of
     true ->
       try open_existing_db(DB#disk_db{mode = Mode})
       catch
         Class:Error ->
           Trace = erlang:get_stacktrace(),
           lager:log(error,[{module,?MODULE},{line,?LINE}],"Error in pulsedb: ~p:~p, need to recover for date: ~p\n~p\n", [Class, Error, Date, Trace]),
-          file:delete(filename:join([Path,Date,config_v3])),
-          file:delete(filename:join([Path,Date,data_v3])),
+          file:delete(filename:join([Path,Date,config_v4])),
+          file:delete(filename:join([Path,Date,data_v4])),
           erlang:raise(Class, Error, Trace)
       end;
     false when Mode == read ->
@@ -85,8 +69,8 @@ open0(#disk_db{path = Path, config_fd = undefined, date = Date} = DB, Mode) when
 
 
 create_new_db(#disk_db{path = Path, date = Date, mode = append} = DB) when Date =/= undefined ->
-  ConfigPath = filename:join([Path, Date, config_v3]),
-  DataPath = filename:join([Path, Date, data_v3]),
+  ConfigPath = filename:join([Path, Date, config_v4]),
+  DataPath = filename:join([Path, Date, data_v4]),
 
   case filelib:ensure_dir(ConfigPath) of
     ok -> ok;
@@ -112,8 +96,8 @@ read_file(Path) ->
   end.
 
 open_existing_db(#disk_db{path = Path, date = Date, mode = Mode} = DB) when Date =/= undefined, Mode =/= undefined ->
-  ConfigPath = filename:join([Path, Date, config_v3]),
-  DataPath = filename:join([Path, Date, data_v3]),
+  ConfigPath = filename:join([Path, Date, config_v4]),
+  DataPath = filename:join([Path, Date, data_v4]),
 
   DB1 = case DB#disk_db.sources of
     undefined ->
@@ -163,8 +147,8 @@ append({_, UTC, _, _} = Tick, #disk_db{mode = append, date = Date, path = Path} 
         Class:Error ->
           Trace = erlang:get_stacktrace(),
           lager:log(error,[{module,?MODULE},{line,?LINE}],"Error in pulsedb: ~p:~p, need to recover for date: ~s\n~p\n", [Class, Error, UTCDate, Trace]),
-          file:delete(filename:join([Path,UTCDate,config_v3])),
-          file:delete(filename:join([Path,UTCDate,data_v3])),
+          file:delete(filename:join([Path,UTCDate,config_v4])),
+          file:delete(filename:join([Path,UTCDate,data_v4])),
           erlang:raise(Class, Error, Trace)
       end;
     true ->
@@ -200,33 +184,27 @@ source_name(Name, Tags, #disk_db{cached_source_names = SourceNames} = DB) ->
 
 
 
-append_new_source(SourceName, Name, Tags, #disk_db{sources = Sources, config_fd = ConfigFd, ticks = TicksPerHour} = DB) ->
-  Begin = case Sources of
-    [] -> 0;
-    _ -> 
-      #source{end_of_block = E} = lists:last(Sources),
-      E
-  end,
-
+append_new_source(SourceName, Name, Tags, #disk_db{sources = Sources, config_fd = ConfigFd} = DB) ->
   {ok, ConfigPos} = file:position(ConfigFd, eof),
-  EOF = Begin + 24*TicksPerHour*(4 + 8),
-  Source = #source{id = length(Sources), name = SourceName,
-    original_name = Name, original_tags = Tags,
-    start_of_block = Begin, end_of_block = EOF,
-    data_offset = Begin, data_offset_ptr = ConfigPos + 3},
+  Source = #source{id = length(Sources), name = SourceName, offsets_offset = ConfigPos + 5 + size(SourceName),
+    original_name = Name, original_tags = Tags},
   Bin = encode_config(Source),
   ok = file:pwrite(ConfigFd, ConfigPos, Bin),
   {ok, Source#source.id, DB#disk_db{sources = Sources ++ [Source]}}.
 
 
--define(CONFIG_SOURCE, 2).
--define(CONFIG_SOURCE64, 3).
+-define(CONFIG_SOURCE, 4).
 
-encode_config(#source{name = Name, data_offset = Offset, start_of_block = Start, end_of_block = End}) ->
+encode_config(#source{name = Name, block_offsets = Offsets}) ->
   L = size(Name),
-  Conf = <<Offset:64, Start:64, End:64, L:16, Name:L/binary>>,
+  OffsetsBin = pack_offsets(Offsets),
+  Conf = [<<L:16, Name:L/binary>>, OffsetsBin],
   Size = iolist_size(Conf),
-  iolist_to_binary([<<?CONFIG_SOURCE64, Size:16>>, Conf]).
+  iolist_to_binary([<<?CONFIG_SOURCE, Size:16>>, Conf]).
+
+
+pack_offsets(Offsets) ->
+  [<<(proplists:get_value(I, Offsets, -1)):32/signed>> || I <- lists:seq(0,23)].
 
 -spec decode_config(binary()) -> [source()].
 
@@ -234,29 +212,17 @@ decode_config(Bin) when is_binary(Bin) ->
   decode_config(Bin, 0, 0).
 
 decode_config(<<?CONFIG_SOURCE, Length:16, Source:Length/binary, Rest/binary>>, ConfigOffset, Id) ->
-  <<Offset:32, Start:32, End:32, L:16, Name:L/binary>> = Source,
-  DataOffsetPtr = ConfigOffset + 3,
-  [OriginalName|Tags] = binary:split(Name, <<":">>, [global]),
-  OriginalTags = lists:map(fun(T) ->
-    [K,V] = binary:split(T, <<"=">>),
-    {K,V}
-  end, Tags),
-  [#source{id = Id, name = Name, start_of_block = Start, end_of_block = End, data_offset = Offset, data_offset_ptr = DataOffsetPtr,
-    original_name = OriginalName, original_tags = OriginalTags, is_64bit = false}
-    |decode_config(Rest, ConfigOffset + 1 + 2 + Length, Id + 1)];
+  <<L:16, Name:L/binary, OffsetsBin:96/binary>> = Source,
+  Offsets =[ {I,O} || {I,O} <- lists:zip(lists:seq(0,23), [O || <<O:32/signed>> <= OffsetsBin]), O >= 0],
 
-decode_config(<<?CONFIG_SOURCE64, Length:16, Source:Length/binary, Rest/binary>>, ConfigOffset, Id) ->
-  <<Offset:64, Start:64, End:64, L:16, Name:L/binary>> = Source,
-  DataOffsetPtr = ConfigOffset + 3,
   [OriginalName|Tags] = binary:split(Name, <<":">>, [global]),
   OriginalTags = lists:map(fun(T) ->
     [K,V] = binary:split(T, <<"=">>),
     {K,V}
   end, Tags),
-  [#source{id = Id, name = Name, start_of_block = Start, end_of_block = End, data_offset = Offset, data_offset_ptr = DataOffsetPtr,
+  [#source{id = Id, name = Name, block_offsets = Offsets, offsets_offset = ConfigOffset + 1 + 2 + 2 + L,
     original_name = OriginalName, original_tags = OriginalTags}
     |decode_config(Rest, ConfigOffset + 1 + 2 + Length, Id + 1)];
-
 
 decode_config(<<>>, _, _) ->
   [].
@@ -267,27 +233,55 @@ metric_name(Name, Tags) ->
  iolist_to_binary([Name, [[":",K,"=",V] ||  {K,V} <- lists:sort(Tags)]]).
 
 
-append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd, config_fd = ConfigFd, sources = Sources} = DB) ->
-  #source{data_offset = Offset, data_offset_ptr = ConfigPtr, end_of_block = EOF, is_64bit = Is64} = Source =
-    lists:keyfind(SourceId,#source.id,Sources),
+append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd} = DB) ->
+  #disk_db{sources = Sources} = DB1 = open_hour_if_required(SourceId, UTC, DB),
+  #source{block_offsets = Offsets} = lists:keyfind(SourceId,#source.id,Sources),
+  Hour = (UTC rem 86400) div 3600,
 
-  Block = case Is64 of
-    true -> <<UTC:32, Value:64>>;
-    false -> <<UTC:32, Value:32>>
-  end,
-  case iolist_size(Block) + Offset =< EOF of
-    true ->
-      file:pwrite(DataFd, Offset, Block),
-      NewDataOffset = Offset + iolist_size(Block),
-      case Is64 of
-        true -> file:pwrite(ConfigFd, ConfigPtr, <<NewDataOffset:64>>);
-        false -> file:pwrite(ConfigFd, ConfigPtr, <<NewDataOffset:32>>)
+  {_, BlockOffset} = lists:keyfind(Hour, 1, Offsets),
+
+  Second = UTC rem 3600,
+
+  ok = file:pwrite(DataFd, (BlockOffset bsl 13) + Second*2, shift_value(Value)),
+  {ok, DB1}.
+
+
+shift_value(Value) when Value >= 0 andalso Value < 16#4000 -> <<3:2, Value:14>>;
+shift_value(Value) when Value >= 16#1000 andalso Value < 16#400000 -> <<2:2, (Value bsr 10):14>>;
+shift_value(Value) when Value >= 16#1000000 andalso Value < 16#400000000 -> <<1:2, (Value bsr 20):14>>;
+shift_value(Value) when Value >= 16#1000000000 andalso Value < 16#400000000000 -> <<0:2, (Value bsr 30):14>>.
+
+
+
+
+
+open_hour_if_required(SourceId, UTC, #disk_db{config_fd = ConfigFd, data_fd = DataFd, sources = Sources} = DB) ->
+  Hour = (UTC rem 86400) div 3600,
+  #source{block_offsets = Offsets, name = Name, offsets_offset = O} = Source = lists:keyfind(SourceId,#source.id,Sources),
+  case proplists:get_value(Hour, Offsets) of
+    Offset when is_number(Offset) andalso Offset >= 0 ->
+      DB;
+    _ ->
+      {ok, DataPos} = file:position(DataFd, eof),
+      BlockOffset = case DataPos rem 8192 of
+        0 -> 
+          DataPos;
+        _ -> 
+          lager:error("Error with data file for ~p / ~p. Last offset is ~p", [DB#disk_db.path, DB#disk_db.date, DataPos]),
+          ((DataPos div 8192) + 1)*8192
       end,
-      Sources1 = lists:keystore(SourceId,#source.id, Sources, Source#source{data_offset = NewDataOffset}),
-      {ok, DB#disk_db{sources = Sources1}};
-    false ->
-      {ok, DB}
+      AdditionalInfo = case iolist_to_binary([pulsedb_time:date_path(UTC)," ", integer_to_list(Hour), " ", Name]) of
+        <<Info:991/binary, _/binary>> -> <<Info/binary, 0>>;
+        Info -> [Info, binary:copy(<<0>>, 992 - size(Info))]
+      end,
+      ok = file:pwrite(DataFd, BlockOffset + 7200, AdditionalInfo),
+      Offsets1 = lists:keystore(Hour, 1, Offsets, {Hour, BlockOffset bsr 13}),
+      ok = file:pwrite(ConfigFd, O, pack_offsets(Offsets1)),
+
+      Sources1 = lists:keystore(SourceId, #source.id, Sources, Source#source{block_offsets = Offsets1}),
+      DB#disk_db{sources = Sources1}
   end.
+
 
 
 
@@ -300,7 +294,7 @@ info(#disk_db{sources = Sources}) when is_list(Sources) ->
 info(#disk_db{path = Path} = DB) ->
   case last_day(Path) of
     undefined -> [];
-    DayPath -> info(DB#disk_db{sources = decode_config(read_file(filename:join(DayPath,config_v3)))})
+    DayPath -> info(DB#disk_db{sources = decode_config(read_file(filename:join(DayPath,config_v4)))})
   end.
 
 
@@ -387,29 +381,38 @@ read0(Name, Query, #disk_db{config_fd = undefined, date = Date} = DB) when Date 
   end;
 
 read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mode = read} = DB) when Date =/= undefined ->
-
   Tags = [{K,V} || {K,V} <- Query, is_binary(K)],
 
   ReadSources = select_sources(Name, Tags, Sources),
 
-  Ticks1 = lists:flatmap(fun(#source{start_of_block = Start, data_offset = Offset, is_64bit = Is64}) ->
-    case file:pread(DataFd, Start, Offset - Start) of
-      {ok, Bin} ->
-        TicksBin1 = case Is64 of
-          true -> [ {UTC,Value} || <<UTC:32, Value:64>> <= Bin];
-          false -> [ {UTC,Value} || <<UTC:32, Value:32>> <= Bin]
-        end,
-        TicksBin2 = filter_ticks(TicksBin1, proplists:get_value(from,Query), proplists:get_value(to,Query)),
-        Ticks = [{UTC, Value} || {UTC,Value} <- TicksBin2],
-        Ticks;
-      _ ->
-        []
-    end
+  DateUTC = pulsedb_time:parse(Date),
+  From = proplists:get_value(from,Query, pulsedb_time:daystart(DateUTC)),
+  To = proplists:get_value(to,Query, pulsedb_time:daystart(DateUTC)+86400 - 1),
+
+  Ticks1 = lists:flatmap(fun(#source{block_offsets = Offsets}) ->
+    lists:flatmap(fun({H,Offset}) ->
+      case file:pread(DataFd, Offset bsl 13, 7200) of
+        {ok, Bin} ->
+          Ticks1 = unpack_ticks(Bin, DateUTC + H*3600),
+          Ticks2 = filter_ticks(Ticks1, From, To),
+          Ticks2;
+        _ ->
+          []
+      end
+    end, Offsets)
   end, ReadSources),
   Ticks2 = lists:sort(Ticks1),
   Ticks3 = aggregate(proplists:get_value(aggregator,Query), Ticks2),
   Ticks4 = downsample(proplists:get_value(downsampler,Query), Ticks3),
   {ok, Ticks4, DB}.
+
+unpack_ticks(<<>>, _) -> [];
+unpack_ticks(<<0:16, Rest/binary>>, UTC) -> unpack_ticks(Rest, UTC+1);
+unpack_ticks(<<3:2, Value:14, Rest/binary>>, UTC) -> [{UTC,Value}|unpack_ticks(Rest, UTC+1)];
+unpack_ticks(<<2:2, Value:14, Rest/binary>>, UTC) -> [{UTC,Value bsl 10}|unpack_ticks(Rest, UTC+1)];
+unpack_ticks(<<1:2, Value:14, Rest/binary>>, UTC) -> [{UTC,Value bsl 20}|unpack_ticks(Rest, UTC+1)];
+unpack_ticks(<<0:2, Value:14, Rest/binary>>, UTC) -> [{UTC,Value bsl 30}|unpack_ticks(Rest, UTC+1)].
+
 
 
 metric_fits_query(Query, Tags) ->
@@ -512,8 +515,8 @@ delete_older(Time, #disk_db{path = Path} = DB) ->
   Dates = [Date || Date <- filelib:wildcard("*/*/*", binary_to_list(Path)), Date < GoodDate],
 
   [begin
-    file:delete(filename:join([Path,Date,config_v3])),
-    file:delete(filename:join([Path,Date,data_v3])),
+    file:delete(filename:join([Path,Date,config_v4])),
+    file:delete(filename:join([Path,Date,data_v4])),
     file:del_dir(filename:join(Path,Date)),
     file:del_dir(filename:join(Path,filename:dirname(Date))),
     file:del_dir(filename:join(Path,filename:dirname(filename:dirname(Date)))),
