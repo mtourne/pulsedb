@@ -25,7 +25,8 @@ groups() ->
     % forbid_to_append_after_read,
     % merge,
     info,
-    required_dates
+    required_dates,
+    query_mutation
   ]}].
 
 
@@ -606,3 +607,22 @@ required_dates(_) ->
 
 %   ok.
 
+query_mutation(_) ->
+  Q1s = <<"sum:10s-avg:ds{from=0,to=1800}">>,
+  Q1 = pulsedb_query:parse(Q1s),
+  
+  
+  Q1s = pulsedb_query:render(Q1),
+  
+  Q2 = pulsedb_query:add_tag({account, "test@email.com"}, Q1),
+  <<"sum:10s-avg:ds{from=0,to=1800,account=test@email.com}">> = pulsedb_query:render(Q2),
+  
+  Q3 = pulsedb_query:remove_tag(from, Q1),
+  <<"sum:10s-avg:ds{to=1800}">> = pulsedb_query:render(Q3),
+  
+  Q4 = pulsedb_query:remove_tag([from, to], Q1),
+  <<"sum:10s-avg:ds">> = pulsedb_query:render(Q4),
+  
+  Q5_ = pulsedb_query:remove_tag([from, to], Q1),
+  Q5 = pulsedb_query:add_tag([{account, "test@email.com"}, {from, 123}], Q5_),
+  <<"sum:10s-avg:ds{account=test@email.com,from=123}">> = pulsedb_query:render(Q5).
