@@ -349,7 +349,7 @@ read(Name, Query, #disk_db{path = Path, date = Date} = DB) ->
 required_dates(Query) ->
   {from,From} = lists:keyfind(from,1,Query),
   {to,To} = lists:keyfind(to,1,Query),
-  [pulsedb_time:date_path(T) || T <- lists:seq(From,To,86400)].
+  [pulsedb_time:date_path(X*86400) || X <- lists:seq(From div 86400,To div 86400)].
 
 
 load_ticks([], _Name, _Query, DB) ->
