@@ -1,14 +1,25 @@
 #!/usr/bin/env escript
-
+%%
+%%! -env ERL_LIBS .. -pa ebin
 
 -mode(compile).
 
-main([URL]) ->
-  {ok, {pulse, _, Host, Port, Path, _}} = http_uri:parse(URL),
+main([URL|Args]) ->
+
+  Auth = case Args of
+    [] -> [];
+    [Key, TagValues] when length(Key) == 16 ->
+      Tags = [ list_to_tuple([list_to_binary(T1) || T1 <- string:tokens(T,"=")]) || T <- string:tokens(TagValues, ":")],
+      ApiKey = pulsedb_netpush_auth:make_api_key(list_to_binary(Key), Tags),
+      ["pulsedb-api-key: ", ApiKey, "\r\n"]
+  end,
+  {ok, {pulse, _, Host, Port, _, _}} = http_uri:parse(URL),
   {ok, Sock} = gen_tcp:connect(Host, Port, [binary,{active,false},{packet,http}]),
 
+  Path = "/api/v1/pulse_push",
   ok = gen_tcp:send(Sock, ["CONNECT ", Path, " HTTP/1.1\r\n",
     "Host: ", Host, "\r\n",
+    Auth,
     "Connection: Upgrade\r\n"
     "Upgrade: application/timeseries-text\r\n"
     "\r\n"]),

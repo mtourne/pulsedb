@@ -41,7 +41,12 @@ to_hex(Bin) ->
   to_hex(Bin, <<>>).
 
 to_hex(<<>>, Acc) ->  Acc;
-to_hex(<<I, Bin/binary>>, Acc) -> to_hex(Bin, <<Acc/binary, (erlang:integer_to_binary(I,16))/binary>>).
+to_hex(<<I, Bin/binary>>, Acc) ->
+  C = case erlang:integer_to_binary(I,16) of
+    <<C1>> -> <<0,C1/binary>>;
+    <<C1:2/binary>> -> C1
+  end,
+  to_hex(Bin, <<Acc/binary, (C)/binary>>).
 
 
 
