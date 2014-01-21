@@ -101,6 +101,7 @@ upgrade0(Req, _Env, _Mod, Args) ->
       {ok, DB_}
   end,
 
+  lager:info("Accepted connection from ~s with info: ~p", [IP, UserTags]),
   State = #netpush{ip = Ip, transport = Transport, socket = Socket, db = DB, user_tags = UserTags},
   gen_server:enter_loop(?MODULE, [], State).
 
