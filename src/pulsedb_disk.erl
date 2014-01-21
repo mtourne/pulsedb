@@ -37,7 +37,6 @@
 -export([delete_older/2]).
 
 -export([metric_name/2, metric_fits_query/2, aggregate/2, downsample/2]).
-% -export([write_events/3]).
 
 
 -spec open(Path::file:filename(), Options::list()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
@@ -258,7 +257,7 @@ append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd} = DB) ->
 
 
 shift_value(Value) when Value >= 0 andalso Value < 16#4000 -> <<3:2, Value:14>>;
-shift_value(Value) when Value >= 16#1000 andalso Value < 16#400000 -> <<2:2, (Value bsr 10):14>>;
+shift_value(Value) when Value >= 16#1000 andalso Value < 16#4000000 -> <<2:2, (Value bsr 10):14>>;
 shift_value(Value) when Value >= 16#1000000 andalso Value < 16#400000000 -> <<1:2, (Value bsr 20):14>>;
 shift_value(Value) when Value >= 16#1000000000 andalso Value < 16#200000000000 -> <<0:2, 1:1, (Value bsr 30):13>>;
 shift_value(Value) when Value >= 16#1000000000000 andalso Value < 16#200000000000000 -> <<0:2, 0:1, (Value bsr 40):13>>.
