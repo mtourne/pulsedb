@@ -4,3 +4,4 @@ test/temp
 .*.swp
 logs
 log
+deps
