@@ -15,8 +15,12 @@ append(Ticks, DB) when is_pid(DB) ->
 
 append(Ticks, DB) when is_atom(DB) ->
   case whereis(DB) of
-    undefined -> ok;
-    Pid -> ok = append(Ticks, Pid), {ok, DB}
+    undefined -> undefined;
+    Pid -> 
+      case append(Ticks, Pid) of 
+        ok -> {ok, DB};
+        {error, E} -> {error, E}
+      end
   end.
 
 
@@ -87,8 +91,12 @@ init([Name, Options]) ->
 
 
 handle_call({append, Ticks}, _, #worker{db = DB} = W) ->
-  {ok, DB1} = pulsedb:append(Ticks, DB),
-  {reply, ok, W#worker{db = DB1}};
+  case pulsedb:append(Ticks, DB) of
+    {ok, DB1} ->
+      {reply, ok, W#worker{db = DB1}};
+    {error, E} ->
+      {stop, normal, {error, E}, W}
+  end;
 
 handle_call({read, Name, Query}, _, #worker{db = DB} = W) ->
   {ok, Ticks, DB2} = pulsedb:read(Name, Query, DB),

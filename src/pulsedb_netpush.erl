@@ -94,8 +94,12 @@ append({Name, UTC, Value, Tags}, #netpush{metrics = Metrics, transport = T, sock
     _ ->
       integer_to_binary(UTC - UTC0)
   end,
-  ok = T:send(Socket, [Id, " ", UTCDelta, " ", shift_value(Value), "\n"]),
-  {ok, DB#netpush{metrics = Metrics1, utc = UTC}}.
+  case T:send(Socket, [Id, " ", UTCDelta, " ", shift_value(Value), "\n"]) of
+    ok ->
+      {ok, DB#netpush{metrics = Metrics1, utc = UTC}};
+    {error, E} ->
+      {error, E}
+  end.
 
 
 sync(#netpush{transport = T, socket = Socket, ping = I} = DB) ->
