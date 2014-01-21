@@ -32,7 +32,7 @@
 
 
 
--export([open/2, append/2, read/3, close/1]).
+-export([open/2, append/2, read/3, close/1, sync/1]).
 -export([info/1]).
 -export([delete_older/2]).
 
@@ -118,6 +118,17 @@ open_existing_db(#disk_db{path = Path, date = Date, mode = Mode} = DB) when Date
 
 
 
+
+sync(#disk_db{config_fd = ConfigFd, data_fd = DataFd} = DB) ->
+  case ConfigFd of
+    undefined -> ok;
+    _ -> file:sync(ConfigFd)
+  end,
+  case DataFd of
+    undefined -> ok;
+    _ -> file:sync(DataFd)
+  end,
+  {ok, DB}.
 
 
 -spec append(pulsedb:tick() | [pulsedb:tick()], pulsedb:db()) -> pulsedb:db().

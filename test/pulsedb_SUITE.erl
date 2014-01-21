@@ -12,6 +12,7 @@ groups() ->
     append_and_read,
     worker_append_and_read,
     netpush_append,
+    netpush_ssl_append,
     worker_cleanup,
     parse_query,
     collector,
@@ -48,7 +49,28 @@ init_per_suite(Config) ->
     {dispatch, cowboy_router:compile(Dispatch)}
   ]}]),
 
+  SslTransOpts = 
+    [{certfile,find("flussonic.crt")},
+      {keyfile,find("flussonic.key")},
+      {password,"flussonic"},
+      {reuse_sessions,true},
+      {verify,verify_none},
+      {ciphers, ciphers()}],
+
+  {ok, L2} = ranch:start_listener(fake_pulsedb_ssl, 1, ranch_ssl, [{port,Port+1}|SslTransOpts], cowboy_protocol, [{env, [
+    {dispatch, cowboy_router:compile(Dispatch)}
+  ]}]),
+
   [{r,R}|Config].
+
+
+find(Cert) ->
+  filename:join(code:lib_dir(pulsedb,test), Cert).
+
+
+ciphers() ->
+  [S || S={Key,_,_} <- ssl:cipher_suites(), 
+        binary:match(atom_to_binary(Key,utf8),<<"ec">>) =/= {0,2}].
 
 
 end_per_suite(Config) ->
@@ -216,79 +238,121 @@ netpush_append(_) ->
   {ok, DB1} = pulsedb:open(netpush_client, [{url, "pulse://localhost:6801/"}]),
 
   Ticks1 = [
-    {<<"input">>, 120, 6, [{name, <<"source1">>}]},
-    {<<"input">>, 120, 2, [{name, <<"source2">>}]},
-    {<<"input">>, 130, 10, [{name, <<"source1">>}]},
-    {<<"input">>, 140, 3, [{name, <<"source1">>}]}
+    {<<"input">>, 120, 6, [{name, <<"source-net1">>}]},
+    {<<"input">>, 120, 2, [{name, <<"source-net2">>}]},
+    {<<"input">>, 130, 10, [{name, <<"source-net1">>}]},
+    {<<"input">>, 140, 3, [{name, <<"source-net1">>}]}
   ],
   pulsedb:append(Ticks1, netpush_client),
 
   Ticks2 = [
-    {<<"input">>, 4000121, 5, [{name, <<"source1">>}]},
-    {<<"input">>, 4000122, 10, [{name, <<"source1">>}]},
-    {<<"input">>, 4000122, 4, [{name, <<"source2">>}]},
-    {<<"input">>, 4000123, 3, [{name, <<"source1">>}]}
+    {<<"input">>, 4000121, 5, [{name, <<"source-net1">>}]},
+    {<<"input">>, 4000122, 10, [{name, <<"source-net1">>}]},
+    {<<"input">>, 4000122, 4, [{name, <<"source-net2">>}]},
+    {<<"input">>, 4000123, 3, [{name, <<"source-net1">>}]}
   ],
   pulsedb:append(Ticks2, netpush_client),
-
-  {ok, [
-    {120,6},
-    {130,10},
-    {140,3},
-    {4000121,5},
-    {4000122,10},
-    {4000123,3}
-  ], _} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1971-02-02"}], netpush_client),
-
+  pulsedb:sync(netpush_client),
 
   {ok, [
     {120,6},
     {130,10},
     {140,3}
-  ], _} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], netpush_client),
-
-  {ok, [
-    {120,8},
-    {130,10},
-    {140,3},
-    {4000121,5},
-    {4000122,14},
-    {4000123,3}
-  ], _} = pulsedb:read(<<"input">>, [{from, "1970-01-01"},{to,"1971-01-02"}], netpush_client),
+  ], _} = pulsedb:read(<<"sum:input{name=source-net1,from=1970-01-01,to=1970-01-02}">>, netpush_db),
 
 
-  {ok, [
-    {120,6},
-    {130,10},
-    {140,3}
-  ], _} = pulsedb:read(<<"sum:input{name=source1,from=1970-01-01,to=1970-01-02}">>, netpush_client),
-
-  {ok, [
-    {120,8},
-    {130,10},
-    {140,3}
-  ], _} = pulsedb:read(<<"sum:input{from=1970-01-01,to=1970-01-02}">>, netpush_client),
-
-  {ok, [
-    {120,6},
-    {130,10},
-    {140,3}
-  ], _} = pulsedb:read(<<"max:input{from=1970-01-01,to=1970-01-02}">>, netpush_client),
-
-  {ok, [
-    {120,4},
-    {130,10},
-    {140,3}
-  ], _} = pulsedb:read(<<"avg:input{from=1970-01-01,to=1970-01-02}">>, netpush_client),
-
-  {ok, [
-  ], _} = pulsedb:read(<<"avg:input">>, netpush_client),
+  % {ok, [
+  %   {120,6},
+  %   {130,10},
+  %   {140,3},
+  %   {4000121,5},
+  %   {4000122,10},
+  %   {4000123,3}
+  % ], _} = pulsedb:read(<<"input">>, [{name,<<"source-net1">>}, {from, "1970-01-01"},{to,"1971-02-02"}], netpush_client),
 
 
+  % {ok, [
+  %   {120,6},
+  %   {130,10},
+  %   {140,3}
+  % ], _} = pulsedb:read(<<"input">>, [{name,<<"source-net1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], netpush_client),
+
+  % {ok, [
+  %   {120,6},
+  %   {130,10},
+  %   {140,3}
+  % ], _} = pulsedb:read(<<"sum:input{name=source-net1,from=1970-01-01,to=1970-01-02}">>, netpush_client),
 
   pulsedb:close(netpush_client),
 
   ok.
+
+
+
+
+
+
+
+
+netpush_ssl_append(_) ->
+  {ok, DB1} = pulsedb:open(netpush_ssl_client, [{url, "pulses://localhost:6802/"}]),
+
+  Ticks1 = [
+    {<<"input">>, 120, 6, [{name, <<"source-ssl1">>}]},
+    {<<"input">>, 120, 2, [{name, <<"source-ssl2">>}]},
+    {<<"input">>, 130, 10, [{name, <<"source-ssl1">>}]},
+    {<<"input">>, 140, 3, [{name, <<"source-ssl1">>}]}
+  ],
+  pulsedb:append(Ticks1, netpush_ssl_client),
+
+  Ticks2 = [
+    {<<"input">>, 4000121, 5, [{name, <<"source-ssl1">>}]},
+    {<<"input">>, 4000122, 10, [{name, <<"source-ssl1">>}]},
+    {<<"input">>, 4000122, 4, [{name, <<"source-ssl2">>}]},
+    {<<"input">>, 4000123, 3, [{name, <<"source-ssl1">>}]}
+  ],
+  pulsedb:append(Ticks2, netpush_ssl_client),
+  pulsedb:sync(netpush_ssl_client),
+
+
+  {ok, [
+    {120,6},
+    {130,10},
+    {140,3}
+  ], _} = pulsedb:read(<<"sum:input{name=source-ssl1,from=1970-01-01,to=1970-01-02}">>, netpush_db),
+
+
+  % {ok, [
+  %   {120,6},
+  %   {130,10},
+  %   {140,3},
+  %   {4000121,5},
+  %   {4000122,10},
+  %   {4000123,3}
+  % ], _} = pulsedb:read(<<"input">>, [{name,<<"source-ssl1">>}, {from, "1970-01-01"},{to,"1971-02-02"}], netpush_ssl_client),
+
+
+  % {ok, [
+  %   {120,6},
+  %   {130,10},
+  %   {140,3}
+  % ], _} = pulsedb:read(<<"input">>, [{name,<<"source-ssl1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], netpush_ssl_client),
+
+
+  % {ok, [
+  %   {120,6},
+  %   {130,10},
+  %   {140,3}
+  % ], _} = pulsedb:read(<<"sum:input{name=source-ssl1,from=1970-01-01,to=1970-01-02}">>, netpush_ssl_client),
+
+
+
+  pulsedb:close(netpush_ssl_client),
+
+  ok.
+
+
+
 
 
 worker_cleanup(_) ->
@@ -372,7 +436,10 @@ info(_) ->
 
   Info1 = pulsedb:info(test_info_db),
   Info1_ = pulsedb:info(DB1),
-  % ct:pal("~p = ~p", [Info1, Info1_]),
+  case Info1 of
+    Info1_ -> ok;
+    _ -> ct:pal("~p = ~p", [Info1, Info1_])
+  end,
   Info1 = Info1_,
   {_,Metrics1} = lists:keyfind(sources,1,Info1),
   {_,Tags1} = lists:keyfind(<<"input">>,1,Metrics1),

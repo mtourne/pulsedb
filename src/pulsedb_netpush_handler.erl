@@ -63,11 +63,29 @@ upgrade(Req, _Env, _Mod, Args) ->
   put('$ancestors', [self()]),
   put(name, {pulsedb_netpush, Ip}),
 
-  {ok, DB} = pulsedb:open(proplists:get_value(path,Args,"test_db")),
+  {ok, DB} = case proplists:get_value(db, Args) of
+    undefined ->
+      case proplists:get_value(path,Args) of
+        undefined -> {ok, undefined};
+        DBPath -> pulsedb:open(DBPath)
+      end;
+    DB_ ->
+      {ok, DB_}
+  end,
 
   State = #netpush{ip = Ip, transport = Transport, socket = Socket, db = DB},
   gen_server:enter_loop(?MODULE, [], State).
 
+
+handle_info({ssl,Socket,Bin}, #netpush{socket = Socket} = State) when is_binary(Bin) ->
+  Len = size(Bin) - 1,
+  <<Bin1:Len/binary, "\n">> = Bin,
+  State1 = #netpush{} = case handle_msg(Bin1, State) of
+    #netpush{} = S -> S;
+    {reply, Msg, #netpush{} = S} -> ssl:send(Socket, [Msg, "\n"]), S
+  end,
+  ssl:setopts(Socket, [{active,once}]),
+  {noreply, State1};
 
 
 handle_info({tcp,Socket,Bin}, #netpush{socket = Socket} = State) when is_binary(Bin) ->
@@ -81,6 +99,9 @@ handle_info({tcp,Socket,Bin}, #netpush{socket = Socket} = State) when is_binary(
   {noreply, State1};
 
 handle_info({tcp_closed, _Socket}, #netpush{} = State) ->
+  {stop, normal, State};
+
+handle_info({ssl_closed, _Socket}, #netpush{} = State) ->
   {stop, normal, State};
 
 handle_info(Msg, #netpush{} = State) ->

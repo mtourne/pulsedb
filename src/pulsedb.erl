@@ -6,7 +6,7 @@
 -export_types([db/0, utc/0, source_name/0, tick/0]).
 
 
--export([open/1, open/2, append/2, read/3, read/2, close/1]).
+-export([open/1, open/2, append/2, read/3, read/2, close/1, sync/1]).
 -export([info/1, parse_query/1]).
 
 -export([collect/3, collect/4, stop_collector/1]).
@@ -38,7 +38,8 @@ open(Name, Options) when is_atom(Name) ->
       URL = iolist_to_binary(URL_),
       case URL of
         <<"file://", _/binary>> -> pulsedb_disk:open(URL, Opts1);
-        <<"pulse://", _/binary>> -> pulsedb_netpush:open(URL, Opts1)
+        <<"pulse://", _/binary>> -> pulsedb_netpush:open(URL, Opts1);
+        <<"pulses://", _/binary>> -> pulsedb_netpush:open(URL, Opts1)
       end;
     _ -> 
       pulsedb_worker:start_link(Name, Options)
@@ -79,13 +80,23 @@ validate({Name,UTC,Value,Tags} = Tick) ->
 
 
 
--spec close(pulsedb:db()) -> pulsedb:db().
+-spec close(pulsedb:db()) -> {ok, pulsedb:db()}.
 close(DB) ->
   if
     is_pid(DB) -> pulsedb_worker:stop(DB);
-    is_tuple(DB) -> pulsedb_disk:close(DB)
+    is_atom(DB) -> pulsedb_worker:stop(DB);
+    is_tuple(DB) -> (element(2,DB)):close(DB)
   end.
 
+
+
+-spec sync(pulsedb:db()) -> {ok, pulsedb:db()}.
+sync(DB) ->
+  if
+    is_pid(DB) -> pulsedb_worker:sync(DB);
+    is_atom(DB) -> pulsedb_worker:sync(DB);
+    is_tuple(DB) -> (element(2,DB)):sync(DB)
+  end.
 
 
 

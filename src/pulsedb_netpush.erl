@@ -1,34 +1,43 @@
 -module(pulsedb_netpush).
 -author('Max Lapshin <max@maxidoors.ru>').
 
--export([open/2, append/2, read/3, close/1]).
+-export([open/2, append/2, read/3, sync/1, close/1]).
 
 
 
 -record(netpush, {
   storage = ?MODULE,
   url,
+  transport,
   socket,
   metrics = [],
+  ping = 0,
   utc
 }).
 
 
 open(URL, _Options) ->
-  {ok, {pulse, _, Host, Port, _, _}} = http_uri:parse(binary_to_list(URL)),
-  {ok, Sock} = gen_tcp:connect(Host, Port, [binary,{active,false},{packet,http},{send_timeout,5000}], 5000),
+  {Transport, Socket} = case http_uri:parse(binary_to_list(URL)) of
+    {ok, {pulse, _, Host, Port, _, _}} ->
+      {ok, Sock} = gen_tcp:connect(Host, Port, [binary,{active,false},{packet,http},{send_timeout,5000}], 5000),
+      {ranch_tcp, Sock};
+    {ok, {pulses, _, Host, Port, _, _}} ->
+      {ok, Sock} = ssl:connect(Host, Port, [binary,{active,false},{packet,http},{send_timeout,5000}], 5000),
+      {ranch_ssl, Sock}
+  end,
+
   Path = "/api/v1/pulse_push",
 
 
-  ok = gen_tcp:send(Sock, ["CONNECT ", Path, " HTTP/1.1\r\n",
+  ok = Transport:send(Socket, ["CONNECT ", Path, " HTTP/1.1\r\n",
     "Host: ", Host, "\r\n",
     "Connection: Upgrade\r\n"
     "Upgrade: application/timeseries-text\r\n"
     "\r\n"]),
-  {ok, {http_response, _, 101, _}} = gen_tcp:recv(Sock, 0),
-  fetch_headers(Sock),
-  inet:setopts(Sock, [{packet,line}]),
-  {ok, #netpush{url = URL, socket = Sock}}.
+  {ok, {http_response, _, 101, _}} = Transport:recv(Socket, 0, 5000),
+  fetch_headers(Transport, Socket),
+  Transport:setopts(Socket, [{packet,line}]),
+  {ok, #netpush{url = URL, transport = Transport, socket = Socket}}.
 
 
 
@@ -39,25 +48,33 @@ append([Tick|Ticks], #netpush{} = DB) ->
   {ok, DB1} = append(Tick, DB),
   append(Ticks, DB1);
 
-append({Name, UTC, Value, Tags}, #netpush{metrics = Metrics, socket = Socket, utc = UTC0} = DB) ->
+append({Name, UTC, Value, Tags}, #netpush{metrics = Metrics, transport = T, socket = Socket, utc = UTC0} = DB) ->
   {Metrics1, Id} = case lists:keyfind({Name,Tags}, 1, Metrics) of
     false ->
       Metric = pulsedb_disk:metric_name(Name, Tags),
       I = integer_to_binary(length(Metrics)),
-      ok = gen_tcp:send(Socket, ["metric ", I," ", Metric, "\n"]),
+      ok = T:send(Socket, ["metric ", I," ", Metric, "\n"]),
       {[{{Name,Tags}, I}|Metrics], I};
     {_,I} ->
       {Metrics, I}
   end,
   UTCDelta = case UTC0 of
     undefined ->
-      ok = gen_tcp:send(Socket, ["utc ", integer_to_binary(UTC),"\n"]),
+      ok = T:send(Socket, ["utc ", integer_to_binary(UTC),"\n"]),
       <<"0">>;
     _ ->
       integer_to_binary(UTC - UTC0)
   end,
-  ok = gen_tcp:send(Socket, [Id, " ", UTCDelta, " ", shift_value(Value), "\n"]),
+  ok = T:send(Socket, [Id, " ", UTCDelta, " ", shift_value(Value), "\n"]),
   {ok, DB#netpush{metrics = Metrics1, utc = UTC}}.
+
+
+sync(#netpush{transport = T, socket = Socket, ping = I} = DB) ->
+  ok = T:send(Socket, ["ping ", integer_to_list(I), "\n"]),
+  Pong = iolist_to_binary(["pong ", integer_to_list(I), "\n"]),
+  {ok, Pong} = T:recv(Socket, 0, 5000),
+  {ok, DB#netpush{ping = I + 1}}.
+
 
 
 read(_Name, _Query, #netpush{} = DB) ->
@@ -79,9 +96,9 @@ shift_value(Value) when Value >= 16#1000000000 andalso Value < 16#200000000000 -
 shift_value(Value) when Value >= 16#1000000000000 andalso Value < 16#200000000000000 -> integer_to_list(Value bsr 40)++"T".
 
 
-fetch_headers(Sock) ->
-  case gen_tcp:recv(Sock, 0) of
+fetch_headers(Transport, Sock) ->
+  case Transport:recv(Sock, 0, 5000) of
     {ok, http_eoh} -> ok;
-    {ok, {http_header, _, _, _, _}} -> fetch_headers(Sock)
+    {ok, {http_header, _, _, _, _}} -> fetch_headers(Transport, Sock)
   end.
 
