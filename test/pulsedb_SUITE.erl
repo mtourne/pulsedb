@@ -11,6 +11,7 @@ groups() ->
   [{append_and_read, [parallel], [
     append_and_read,
     worker_append_and_read,
+    netpush_403,
     netpush_append,
     netpush_ssl_append,
     worker_cleanup,
@@ -31,6 +32,8 @@ groups() ->
 
 
 
+key() -> <<"0123456789abcdef">>.
+
 init_per_suite(Config) ->
   Apps = [pulsedb,crypto,asn1,public_key,ssl,ranch,cowlib,cowboy],
   [{ok,App} = {application:start(App),App} || App <- Apps],
@@ -41,8 +44,9 @@ init_per_suite(Config) ->
 
 
   Port = 6801,
+  NetAuth = [{key,key()}],
   Dispatch = [{'_', [
-    {"/api/v1/pulse_push", pulsedb_netpush_handler, [{db,netpush_db}]}
+    {"/api/v1/pulse_push", pulsedb_netpush_handler, [{db,netpush_db},{auth,pulsedb_netpush_auth,NetAuth}]}
   ]}],
   {ok, L} = ranch:start_listener(fake_pulsedb, 1, ranch_tcp, [{port,Port}], cowboy_protocol, [{env, [
     {dispatch, cowboy_router:compile(Dispatch)}
@@ -230,9 +234,14 @@ worker_append_and_read(_) ->
 
 
 
+netpush_403(_) ->
+  {error, denied} = pulsedb:open(netpush_403_client, [{url, "pulse://localhost:6801/"}]),
+  ok.
+
 
 netpush_append(_) ->
-  {ok, DB1} = pulsedb:open(netpush_client, [{url, "pulse://localhost:6801/"}]),
+  Apikey = pulsedb_netpush_auth:make_api_key(key(), [{<<"point">>, <<"p1">>}]),
+  {ok, DB1} = pulsedb:open(netpush_client, [{url, "pulse://localhost:6801/"},{api_key,Apikey}]),
 
   Ticks1 = [
     {<<"input">>, 120, 6, [{name, <<"source-net1">>}]},
@@ -292,7 +301,8 @@ netpush_append(_) ->
 
 
 netpush_ssl_append(_) ->
-  {ok, DB1} = pulsedb:open(netpush_ssl_client, [{url, "pulses://localhost:6802/"}]),
+  Apikey = pulsedb_netpush_auth:make_api_key(key(), [{<<"point">>, <<"p1">>}]),
+  {ok, DB1} = pulsedb:open(netpush_ssl_client, [{url, "pulses://localhost:6802/"},{api_key,Apikey}]),
 
   Ticks1 = [
     {<<"input">>, 120, 6, [{name, <<"source-ssl1">>}]},

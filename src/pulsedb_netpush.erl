@@ -15,26 +15,47 @@
   utc
 }).
 
+open(URL, Options) ->
+  try open0(URL, Options)
+  catch
+    throw:R -> R
+  end.
 
-open(URL, _Options) ->
+open0(URL, Options) ->
   {Transport, Socket} = case http_uri:parse(binary_to_list(URL)) of
     {ok, {pulse, _, Host, Port, _, _}} ->
-      {ok, Sock} = gen_tcp:connect(Host, Port, [binary,{active,false},{packet,http},{send_timeout,5000}], 5000),
+      {ok, Sock} = case gen_tcp:connect(Host, Port, [binary,{active,false},{packet,http},{send_timeout,5000}], 5000) of
+        {ok, S} -> {ok, S};
+        {error, E} -> throw({error, E})
+      end,
       {ranch_tcp, Sock};
     {ok, {pulses, _, Host, Port, _, _}} ->
-      {ok, Sock} = ssl:connect(Host, Port, [binary,{active,false},{packet,http},{send_timeout,5000}], 5000),
+      {ok, Sock} = case ssl:connect(Host, Port, [binary,{active,false},{packet,http},{send_timeout,5000}], 5000) of
+        {ok, S} -> {ok, S};
+        {error, E} -> throw({error, E})
+      end,
       {ranch_ssl, Sock}
   end,
 
   Path = "/api/v1/pulse_push",
 
 
+  ApiKey = case proplists:get_value(api_key, Options) of
+    undefined -> [];
+    K -> ["Pulsedb-Api-Key: ", K, "\r\n"]
+  end,
   ok = Transport:send(Socket, ["CONNECT ", Path, " HTTP/1.1\r\n",
     "Host: ", Host, "\r\n",
+    ApiKey,
     "Connection: Upgrade\r\n"
     "Upgrade: application/timeseries-text\r\n"
     "\r\n"]),
-  {ok, {http_response, _, 101, _}} = Transport:recv(Socket, 0, 5000),
+  case Transport:recv(Socket, 0, 5000) of
+    {ok, {http_response, _, 101, _}} -> ok;
+    {ok, {http_response, _, 403, _}} -> Transport:close(Sock), throw({error, denied});
+    {ok, {http_response, _, Code, _}} -> Transport:close(Sock), throw({error, {failure,Code}});
+    {error, _} -> Transport:close(Sock), throw({error, closed})
+  end,
   fetch_headers(Transport, Socket),
   Transport:setopts(Socket, [{packet,line}]),
   {ok, #netpush{url = URL, transport = Transport, socket = Socket}}.

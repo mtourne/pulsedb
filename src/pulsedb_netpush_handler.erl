@@ -10,8 +10,7 @@
 
 
 
-init({_,http}, Req, _) ->
-  lager:info("Connected server"),
+init({_,http}, Req, _Args) ->
   {Upgrade, Req1} = cowboy_req:header(<<"upgrade">>, Req),
   case Upgrade of
     <<"application/timeseries-text">> ->
@@ -33,14 +32,43 @@ terminate(_,_) -> ok.
   db,
   utc,
   metrics = [],
+  user_tags = [],
   socket
 }).
 
 
-upgrade(Req, _Env, _Mod, Args) ->
+
+upgrade(Req, Env, Mod, Args) ->
+  try upgrade0(Req, Env, Mod, Args)
+  catch
+    exit:normal ->
+      {halt, Req};
+    C:E ->
+      lager:error("error in server login: ~p:~p\n~p", [C,E, erlang:get_stacktrace()]),
+      {error, 500, Req}
+  end.
+
+
+
+upgrade0(Req, _Env, _Mod, Args) ->
   % TODO: authentication
 
-  Req5 = Req,
+  {Headers, Req1} = cowboy_req:headers(Req),
+
+  UserTags = case lists:keyfind(auth, 1, Args) of
+    {auth,Module,AuthArgs} ->
+      case Module:auth(Headers, AuthArgs) of
+        {ok, Yes} -> Yes;
+        {error, denied} ->
+          {ok, _} = cowboy_req:reply(403, [], "Denied\n", Req1),
+          exit(normal)
+      end;
+    false ->
+      []
+  end,
+
+  Req5 = Req1,
+
   {Ip, Req6} = case cowboy_req:header(<<"x-real-ip">>, Req5) of
     {undefined, Req5_} ->
       {{PeerAddr,_}, Req6_} = cowboy_req:peer(Req5_),
@@ -73,7 +101,7 @@ upgrade(Req, _Env, _Mod, Args) ->
       {ok, DB_}
   end,
 
-  State = #netpush{ip = Ip, transport = Transport, socket = Socket, db = DB},
+  State = #netpush{ip = Ip, transport = Transport, socket = Socket, db = DB, user_tags = UserTags},
   gen_server:enter_loop(?MODULE, [], State).
 
 
@@ -124,7 +152,7 @@ handle_msg(<<"metric ", Msg/binary>>, #netpush{metrics = Metrics} = State) ->
   Metrics1 = lists:keystore(MetricId, 1, Metrics, {MetricId, {Name,Tags}}),
   State#netpush{metrics = Metrics1};
 
-handle_msg(<<C,_/binary>> = Msg, #netpush{metrics = Metrics, utc = UTC0, db = DB} = State) when C >= $0 andalso C =< $9 ->
+handle_msg(<<C,_/binary>> = Msg, #netpush{metrics = Metrics, utc = UTC0, db = DB, user_tags = UserTags} = State) when C >= $0 andalso C =< $9 ->
   [MetricId, UTCDelta, Val] = binary:split(Msg, <<" ">>, [global]),
   {_,{Name, Tags}} = lists:keyfind(MetricId, 1, Metrics),
   UTC = UTC0 + binary_to_integer(UTCDelta),
@@ -140,7 +168,8 @@ handle_msg(<<C,_/binary>> = Msg, #netpush{metrics = Metrics, utc = UTC0, db = DB
     <<V:L/binary, "t">> -> binary_to_integer(V) bsl 40;
     _ -> binary_to_integer(Val)
   end,
-  {ok, DB1} = pulsedb:append({Name,UTC,Value,Tags}, DB),
+  Tags1 = UserTags ++ [{T,V} || {T,V} <- Tags, lists:keyfind(T,1,UserTags) == false],
+  {ok, DB1} = pulsedb:append({Name,UTC,Value,Tags1}, DB),
   State#netpush{utc = UTC, db = DB1};
 
 

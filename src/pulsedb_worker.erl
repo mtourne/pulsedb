@@ -7,7 +7,7 @@
 
 
 start_link(Name, Options) ->
-  gen_server:start_link({local, Name}, ?MODULE, [Options], []).
+  proc_lib:start_link(?MODULE, init, [[Name, Options]]).
 
 
 append(Ticks, DB) when is_pid(DB) ->
@@ -68,14 +68,22 @@ stop(DB) ->
   clean_timeout
 }).
 
-init([Options]) ->
-  {ok, DB} = pulsedb:open(undefined, Options),
-  CleanTimeout = proplists:get_value(delete_older, Options),
-  CleanTimer = case CleanTimeout of
-    undefined -> undefined;
-    CleanTimeout -> erlang:send_after(?CLEAN, self(), clean)
-  end,
-  {ok, #worker{db = DB, clean_timer = CleanTimer, clean_timeout = CleanTimeout}}.
+init([Name, Options]) ->
+  erlang:register(Name, self()),
+  case pulsedb:open(undefined, Options) of
+    {ok, DB} ->
+      CleanTimeout = proplists:get_value(delete_older, Options),
+      CleanTimer = case CleanTimeout of
+        undefined -> undefined;
+        CleanTimeout -> erlang:send_after(?CLEAN, self(), clean)
+      end,
+      proc_lib:init_ack({ok, self()}),
+      State = #worker{db = DB, clean_timer = CleanTimer, clean_timeout = CleanTimeout},
+      gen_server:enter_loop(?MODULE, [], State);
+    {error, E} ->
+      proc_lib:init_ack({error, E}),
+      ok
+  end.
 
 
 handle_call({append, Ticks}, _, #worker{db = DB} = W) ->
