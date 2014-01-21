@@ -35,6 +35,7 @@ main0([Port_, Path|Args]) ->
   application:start(ranch),
   application:start(cowlib),
   application:start(cowboy),
+  application:start(pulsedb),
 
   application:load(lager),
   application:set_env(lager,crash_log,undefined),
@@ -44,7 +45,9 @@ main0([Port_, Path|Args]) ->
   {ok, _} = pulsedb:open(simple_db, [{url,"file://"++Path}]),
 
   Dispatch = [{'_', [
-    {"/api/v1/pulse_push", pulsedb_netpush_handler, [{db,simple_db}] ++ Auth}
+    {"/api/v1/pulse_push", pulsedb_netpush_handler, [{db,simple_db}] ++ Auth},
+    {"/embed/[...]", pulsedb_graphic_handler, [{resolver, {pulsedb_graphic_handler, resolve_embed}}]},
+    {"/js/[...]", cowboy_static, [{directory, "webroot/js"}]}
   ]}],
 
   {ok, L} = ranch:start_listener(fake_pulsedb, 1, ranch_tcp, [{port,Port}], cowboy_protocol, [{env, [

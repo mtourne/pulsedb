@@ -170,6 +170,7 @@ handle_msg(<<C,_/binary>> = Msg, #netpush{metrics = Metrics, utc = UTC0, db = DB
   end,
   Tags1 = UserTags ++ [{T,V} || {T,V} <- Tags, lists:keyfind(T,1,UserTags) == false],
   {ok, DB1} = pulsedb:append({Name,UTC,Value,Tags1}, DB),
+  pulsedb:append({Name,UTC,Value,Tags1}, seconds),
   State#netpush{utc = UTC, db = DB1};
 
 
