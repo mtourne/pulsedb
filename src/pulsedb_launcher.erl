@@ -58,7 +58,8 @@ start() ->
   case application:get_env(pulsedb, path) of
     {ok, Path} ->
       lager:info("Open pulsedb storage at ~s", [Path]),
-      {ok, _} = pulsedb:open(simple_db, [{url,"file://"++Path}]);
+      Spec = {simple_db, {pulsedb, open, [simple_db, [{url,"file://"++Path}]]}, permanent, 100, worker, []},
+      supervisor:start_child(pulsedb_sup, Spec);
     _ ->
       ok
   end,
@@ -75,7 +76,7 @@ start() ->
     {ok, "0.9."++_} -> {dir, "webroot/js", [{mimetypes, cow_mimetypes, web}]};
     {ok, "0.8."++_} -> [{directory, "webroot/js"}]
   end,
-  
+
   Dispatch = [{'_', [
     {"/api/v1/pulse_push", pulsedb_netpush_handler, [{db,simple_db}] ++ Auth},
     {"/embed/[...]", pulsedb_graphic_handler, [{db,simple_db}, {resolver, {pulsedb_graphic_handler, resolve_embed}}]},

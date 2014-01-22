@@ -466,6 +466,7 @@ aggregate(Agg, [{UTC2,V1}|Ticks], UTC1, Acc) ->
   [{UTC1,Agg(Acc)}|aggregate(Agg, Ticks, UTC2, [V1])].
 
 
+sum([]) -> 0;
 sum(Acc) -> lists:sum(Acc).
 
 avg([]) -> 0;

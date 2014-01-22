@@ -170,9 +170,11 @@ handle_msg(<<C,_/binary>> = Msg, #netpush{metrics = Metrics, utc = UTC0, db = DB
     _ -> binary_to_integer(Val)
   end,
   Tags1 = UserTags ++ [{T,V} || {T,V} <- Tags, lists:keyfind(T,1,UserTags) == false],
-  {ok, DB1} = pulsedb:append({Name,UTC,Value,Tags1}, DB),
   pulsedb:append({Name,UTC,Value,Tags1}, seconds),
-  State#netpush{utc = UTC, db = DB1};
+  case pulsedb:append({Name,UTC,Value,Tags1}, DB) of
+    {ok, DB1} -> State#netpush{utc = UTC, db = DB1};
+    undefined -> State#netpush{utc = UTC}
+  end;
 
 
 handle_msg(Bin, #netpush{} = State) ->

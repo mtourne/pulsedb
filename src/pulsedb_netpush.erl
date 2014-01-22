@@ -55,7 +55,10 @@ open0(URL, Options) ->
 
   lager:debug("Connecting to pulsedb server:\n~s", [ConnectCmd]),
 
-  ok = Transport:send(Socket, ConnectCmd),
+  case Transport:send(Socket, ConnectCmd) of
+    ok -> ok;
+    {error, E2} -> Transport:close(Socket), throw({error, E2})
+  end,
   case Transport:recv(Socket, 0, 5000) of
     {ok, {http_response, _, 101, _}} -> ok;
     {ok, {http_response, _, 403, _}} -> Transport:close(Sock), throw({error, denied});
@@ -77,19 +80,32 @@ append([Tick|Ticks], #netpush{} = DB) ->
     {error, Error} -> {error, Error}
   end;
 
-append({Name, UTC, Value, Tags}, #netpush{metrics = Metrics, transport = T, socket = Socket, utc = UTC0} = DB) ->
+append({_,_,_,_} = Tick, #netpush{} = DB) ->
+  try append0(Tick, DB)
+  catch
+    throw:R -> R
+  end.
+
+
+append0({Name, UTC, Value, Tags}, #netpush{metrics = Metrics, transport = T, socket = Socket, utc = UTC0} = DB) ->
   {Metrics1, Id} = case lists:keyfind({Name,Tags}, 1, Metrics) of
     false ->
       Metric = pulsedb_disk:metric_name(Name, Tags),
       I = integer_to_binary(length(Metrics)),
-      ok = T:send(Socket, ["metric ", I," ", Metric, "\n"]),
+      case T:send(Socket, ["metric ", I," ", Metric, "\n"]) of
+        ok -> ok;
+        {error, E} -> throw({error, E})
+      end,
       {[{{Name,Tags}, I}|Metrics], I};
     {_,I} ->
       {Metrics, I}
   end,
   UTCDelta = case UTC0 of
     undefined ->
-      ok = T:send(Socket, ["utc ", integer_to_binary(UTC),"\n"]),
+      case T:send(Socket, ["utc ", integer_to_binary(UTC),"\n"]) of
+        ok -> ok;
+        {error, E2} -> throw({error, E2})
+      end,
       <<"0">>;
     _ ->
       integer_to_binary(UTC - UTC0)
@@ -97,16 +113,24 @@ append({Name, UTC, Value, Tags}, #netpush{metrics = Metrics, transport = T, sock
   case T:send(Socket, [Id, " ", UTCDelta, " ", shift_value(Value), "\n"]) of
     ok ->
       {ok, DB#netpush{metrics = Metrics1, utc = UTC}};
-    {error, E} ->
-      {error, E}
+    {error, E3} ->
+      {error, E3}
   end.
 
 
 sync(#netpush{transport = T, socket = Socket, ping = I} = DB) ->
-  ok = T:send(Socket, ["ping ", integer_to_list(I), "\n"]),
-  Pong = iolist_to_binary(["pong ", integer_to_list(I), "\n"]),
-  {ok, Pong} = T:recv(Socket, 0, 5000),
-  {ok, DB#netpush{ping = I + 1}}.
+  case T:send(Socket, ["ping ", integer_to_list(I), "\n"]) of
+    ok ->
+      Pong = iolist_to_binary(["pong ", integer_to_list(I), "\n"]),
+      case T:recv(Socket, 0, 5000) of
+        {ok, Pong} ->
+          {ok, DB#netpush{ping = I + 1}};
+        {error, E1} ->
+          {error, E1}
+      end;
+    {error, E2} ->
+      {error, E2}
+  end.
 
 
 
