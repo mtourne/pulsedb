@@ -8,15 +8,16 @@
 -export([websocket_info/3]).
 -export([websocket_terminate/3]).
 
--export([pulse_data/4, make_queries/1, resolve_embed/2]).
+-export([pulse_data/3, make_queries/1, resolve_embed/2]).
 
 -record(ws_state, {
   last_utc = [],
-  pulses
+  pulses,
+  resolver,
+  db
 }).
 
 -record(page_state, {
-  db,
   resolver,
   embed
 }).
@@ -25,22 +26,26 @@ init({tcp, http}, Req, Opts) ->
   {Path, Req2} = cowboy_req:path_info(Req),
   case Path of
     [_,<<"events">>] -> {upgrade, protocol, cowboy_websocket};
-    [Embed]        -> {ok, Req2, #page_state{db = proplists:get_value(db,Opts), embed=Embed, resolver=proplists:get_value(resolver, Opts)}};
+    [Embed]        -> {ok, Req2, #page_state{resolver = proplists:get_value(resolver, Opts),
+                                             embed = Embed}};
     _              -> {shutdown, Req2, undefined}
   end.
 
 terminate(_,_,_) ->
   ok.
 
-handle(Req, #page_state{resolver={Resolver,Resolve}, embed=Embed, db = DB}=State) ->
+handle(Req, #page_state{resolver={Resolver,Resolve}, embed=Embed}=State) ->
   case erlang:apply(Resolver, Resolve, [Embed, []]) of
-    {ok, Title, Queries} ->
+    {ok, Title, _} ->
       {Path, Req5} = cowboy_req:path(Req),
-      WsPath = filename:join([Path,"events"]),
-
-      Template = undefined,
-      InitData = page_init_data(Embed, Title, Queries, WsPath, DB),
-      {ok, Reply} = cowboy_req:reply(200, headers(html), fill_template(Template, InitData), Req5),
+      InitData = [{title, Title},
+                  {embed, Embed},
+                  {ws_path, filename:join([Path,"events"])}],
+      Page = fill_template(page, InitData),
+      {ok, Reply} = cowboy_req:reply(200, headers(html), Page, Req5),
+      {ok, Reply, State};
+    {deny, Reason} ->
+      {ok, Reply} = cowboy_req:reply(403, headers(html), Reason, Req),
       {ok, Reply, State};
     _ -> 
       {ok, Reply} = cowboy_req:reply(404, headers(html), "not found", Req),
@@ -48,7 +53,7 @@ handle(Req, #page_state{resolver={Resolver,Resolve}, embed=Embed, db = DB}=State
   end.
       
 
-websocket_init(_Transport, Req, _Opts) ->
+websocket_init(_Transport, Req, Opts) ->
   {Ip, Req1} = case cowboy_req:header(<<"x-real-ip">>, Req) of
     {undefined, Req_} ->
       {{PeerAddr,_}, Req1_} = cowboy_req:peer(Req_),
@@ -57,26 +62,21 @@ websocket_init(_Transport, Req, _Opts) ->
       {PeerAddr, Req1_}
   end,
   put(name, {pulsedb_graph,Ip}),
-  {ok, Req1, #ws_state{}}.
+  {ok, Req1, #ws_state{resolver = proplists:get_value(resolver, Opts),
+                       db = proplists:get_value(db,Opts)}}.
  
 
 websocket_handle({text, Text}, Req, State) ->
   websocket_handle({'text:json', jsx:decode(Text)}, Req, State);
 
-websocket_handle({'text:json', Json}=Data, Req, #ws_state{}=State) ->
-  case proplists:get_value(<<"mfa">>, Json) of
-    MFA when is_binary(MFA) -> 
-      {Module, Function, Args} = depickle(MFA),
-      case erlang:apply(Module, Function, Args) of
-        {ok, InitBody, NewState} ->
-          %InitBody = graph_init_data(Config),
-          {reply, {text, jsx:encode(InitBody)}, Req, NewState};
-        _ ->
-          {shutdown, Req, State}
-      end;
-    undefined -> 
-      lager:info("Unknown request ~p", [Data]),
-      {ok, Req, State}
+websocket_handle({'text:json', Json}, Req, #ws_state{resolver={Resolver,Resolve}, db=DB}=State) ->
+  Embed = proplists:get_value(<<"embed">>, Json),
+  {ok, Title, Queries} = erlang:apply(Resolver, Resolve, [Embed, []]),
+  case pulse_data(Title, Queries, DB) of
+    {ok, InitBody, NewState} ->
+      {reply, {text, jsx:encode(InitBody)}, Req, NewState};
+    _ ->
+      {shutdown, Req, State}
   end;
 
 websocket_handle(Data, Req, State) -> 
@@ -85,7 +85,7 @@ websocket_handle(Data, Req, State) ->
 
 
 
-pulse_data(Embed, Title, Queries, DB) ->
+pulse_data(Title, Queries, DB) ->
   {History, PulseTokens, LastUTCs1} = lists:unzip3(
   [begin
     {Name, QueryRealtime, QueryHistory} = make_queries(Query),
@@ -94,7 +94,7 @@ pulse_data(Embed, Title, Queries, DB) ->
 
     Token = make_ref(),
     pulsedb:subscribe(QueryRealtime, Token),
-    lager:info("Subscribed websocket to pulse [~p]~s", [Embed, QueryRealtime]),
+    lager:info("Subscribed websocket ~p to pulse ~s", [get(name), QueryRealtime]),
      
     Link = {Name, Token},
     History2 = [{name,Name},{data, HistoryData}],
@@ -145,14 +145,7 @@ websocket_terminate(_Reason, _Req, _State) ->
 
 
 
-page_init_data(Embed, Title, Queries, WsPath, DB) ->
-  MFA = {?MODULE,pulse_data,
-         [Embed, Title, Queries, DB]},
-  [{title, Title},
-   {mfa, pickle(MFA)},
-   {ws_path, WsPath}].
-
-fill_template(_Template, Data) ->
+fill_template(page, Data) ->
 Template = <<
 "<html>
   <head>
@@ -160,7 +153,7 @@ Template = <<
     <script src='/js/highcharts.js'></script>
     <script src='/js/graphic.js'></script>
     <script>
-      window.onload = function(){ window.Graphic.ws_request('pulse', '{{mfa}}', '{{ws_path}}'); };
+      window.onload = function(){ window.Graphic.ws_request('pulse', '{{embed}}', '{{ws_path}}'); };
     </script>
   </head>
   <body>
@@ -176,13 +169,6 @@ Template = <<
 
 headers(html) -> [{<<"content-type">>, <<"text/html">>}].
 
-pickle(Term) ->
-  Bin = erlang:term_to_binary(Term, [compressed]),
-  base64:encode(Bin).
-
-depickle(Encoded) ->
-  Bin = base64:decode(Encoded),
-  erlang:binary_to_term(Bin).
 
 
 make_queries(Query0) ->
