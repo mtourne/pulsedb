@@ -76,11 +76,11 @@ websocket_handle({pong, _}, Req, #ws_state{} = State) ->
   Ref = erlang:send_after(?WS_TIMEOUT, self(), ping),
   {ok, Req, State#ws_state{timer = Ref}};  
 
-websocket_handle({text, Text}, Req, #ws_state{db=DB, auth=Auth}=State) ->
+websocket_handle({text, Text}, Req, #ws_state{auth=Auth}=State) ->
   Json = jsx:decode(Text),
   Embed = proplists:get_value(<<"embed">>, Json),
   {ok, Title, Queries} = resolve_embed(Embed, Auth, []),
-  case pulse_data(Title, Queries, DB) of
+  case pulse_data(Title, Queries, State) of
     {ok, InitBody, NewState} ->
       {reply, {text, jsx:encode(InitBody)}, Req, NewState};
     _ ->
@@ -93,7 +93,7 @@ websocket_handle(Data, Req, State) ->
 
 
 
-pulse_data(Title, Queries, DB) ->
+pulse_data(Title, Queries, #ws_state{db = DB} = State) ->
   {History, PulseTokens, LastUTCs1} = lists:unzip3(
   [begin
     {Name, QueryRealtime, QueryHistory} = make_queries(Query),
@@ -122,7 +122,7 @@ pulse_data(Title, Queries, DB) ->
     {title, Title}
   ],
   Reply = [{init, true}, {options, Config}, {data, History}],
-  {ok, Reply, #ws_state{pulses=PulseTokens, last_utc = LastUTCs}}.
+  {ok, Reply, State#ws_state{pulses=PulseTokens, last_utc = LastUTCs}}.
 
 
 
