@@ -14,6 +14,7 @@
   last_utc = [],
   pulses,
   db,
+  timer,
   auth
 }).
 
@@ -51,7 +52,10 @@ handle(Req, #page_state{embed=Embed, auth=Auth}=State) ->
       {ok, Reply} = cowboy_req:reply(404, headers(html), "not found", Req),
       {ok, Reply, State}
   end.
-      
+
+
+-define(WS_TIMEOUT, 3000).
+
 
 websocket_init(_Transport, Req, Opts) ->
   {Ip, Req1} = case cowboy_req:header(<<"x-real-ip">>, Req) of
@@ -62,14 +66,17 @@ websocket_init(_Transport, Req, Opts) ->
       {PeerAddr, Req1_}
   end,
   put(name, {pulsedb_graph,Ip}),
-  {ok, Req1, #ws_state{db = proplists:get_value(db,Opts), 
-                       auth = lists:keyfind(auth, 1, Opts)}}.
- 
+  DB = proplists:get_value(db,Opts),
+  Auth = lists:keyfind(auth, 1, Opts),
+  self() ! init,
+  {ok, Req1, #ws_state{db = DB, auth = Auth}, 2*?WS_TIMEOUT}.
 
-websocket_handle({text, Text}, Req, State) ->
-  websocket_handle({'text:json', jsx:decode(Text)}, Req, State);
+websocket_handle({pong, _}, Req, #ws_state{} = State) ->
+  Ref = erlang:send_after(?WS_TIMEOUT, self(), ping),
+  {ok, Req, State#ws_state{timer = Ref}};  
 
-websocket_handle({'text:json', Json}, Req, #ws_state{db=DB, auth=Auth}=State) ->
+websocket_handle({text, Text}, Req, #ws_state{db=DB, auth=Auth}=State) ->
+  Json = jsx:decode(Text),
   Embed = proplists:get_value(<<"embed">>, Json),
   {ok, Title, Queries} = resolve_embed(Embed, Auth, []),
   case pulse_data(Title, Queries, DB) of
@@ -132,6 +139,14 @@ websocket_info({pulse, Token, UTC, Value}, Req, #ws_state{pulses=Pulses, last_ut
           {reply, {text, jsx:encode(Prepared)}, Req, State}
       end
   end;
+
+websocket_info(init, Req, #ws_state{} = State) ->
+  Ref = erlang:send_after(?WS_TIMEOUT, self(), ping),
+  {ok, Req, State#ws_state{timer = Ref}};
+
+websocket_info(ping, Req, #ws_state{timer = Old} = State) ->
+  erlang:cancel_timer(Old),
+  {reply, {ping, <<>>}, Req, State#ws_state{timer = undefined}};
 
 
 websocket_info(Msg, Req, #ws_state{}=State) ->

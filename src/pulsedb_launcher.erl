@@ -2,7 +2,7 @@
 
 -export([start/0]).
 -export([pushers/0]).
-
+-export([workers/0]).
 
 workers() ->
   [begin
@@ -13,7 +13,7 @@ workers() ->
       _ -> {undefined,undefined}
     end,
     {Pid,Type,IP} 
-  end || {_,Pid,_,_} <-  supervisor:which_children(ranch_server:get_connections_sup(fake_pulsedb))].
+  end || {_,Pid,_,_} <-  supervisor:which_children(ranch_server:get_connections_sup(pulsedb_service))].
 
 
 pushers() ->
