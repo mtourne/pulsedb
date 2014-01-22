@@ -111,10 +111,7 @@ pulse_data(Embed, Title, Queries, DB) ->
   
   LastUTCs = [L || L <- LastUTCs1, is_tuple(L)],
   Config = [
-    {title, Title},
-    {legend, true},
-    {type, spline},
-    {navigator, true}
+    {title, Title}
   ],
   Reply = [{init, true}, {options, Config}, {data, History}],
   {ok, Reply, #ws_state{pulses=PulseTokens, last_utc = LastUTCs}}.
