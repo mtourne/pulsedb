@@ -58,7 +58,7 @@
     var xAxis = {ordinal: Options.ordinal, 
                  type: 'datetime'};
 
-    var yAxis = {};
+    var yAxis = { min: 0 };
 
    // if (Options.lines) yAxis.plotLines = genPlotLines(Options.lines);
 
