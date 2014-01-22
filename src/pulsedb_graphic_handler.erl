@@ -15,6 +15,7 @@
   pulses,
   db,
   timer,
+  ip,
   auth
 }).
 
@@ -69,7 +70,7 @@ websocket_init(_Transport, Req, Opts) ->
   DB = proplists:get_value(db,Opts),
   Auth = lists:keyfind(auth, 1, Opts),
   self() ! init,
-  {ok, Req1, #ws_state{db = DB, auth = Auth}, 2*?WS_TIMEOUT}.
+  {ok, Req1, #ws_state{db = DB, auth = Auth, ip = Ip}, 2*?WS_TIMEOUT}.
 
 websocket_handle({pong, _}, Req, #ws_state{} = State) ->
   Ref = erlang:send_after(?WS_TIMEOUT, self(), ping),
@@ -155,7 +156,8 @@ websocket_info(Msg, Req, #ws_state{}=State) ->
 
 
 
-websocket_terminate(_Reason, _Req, _State) -> 
+websocket_terminate(Reason, _Req, #ws_state{ip = Ip}) ->
+  lager:info("Closing graphic connection to ip ~s due to ~p", [Ip, Reason]),
   ok.
 
 
