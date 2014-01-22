@@ -1,6 +1,7 @@
 -module(pulsedb_netpush_auth).
 
 -export([auth/2]).
+-export([encrypt/2, decrypt/2]).
 -export([make_api_key/2]).
 
 
@@ -9,20 +10,40 @@ ivec() ->
 
 
 auth(Headers, Args) ->
-  Secret = proplists:get_value(key, Args),
-  case lists:keyfind(<<"pulsedb-api-key">>, 1, Headers) of
-    {_, HexCipher} when byte_size(Secret) == 16 ->
-      Cipher = from_hex(HexCipher),
-      C1 = crypto:stream_init(aes_ctr, Secret, ivec()),
-      {_, AuthInfo} = crypto:stream_decrypt(C1, Cipher),
-      <<"t", _/binary>> = AuthInfo,
+  HexCipher = proplists:get_value(<<"pulsedb-api-key">>, Headers),
+  case decrypt(HexCipher, Args) of
+    {ok, <<"t", _/binary>>=AuthInfo} ->
       Tags = [ list_to_tuple(binary:split(T,<<"=">>)) || T <- binary:split(AuthInfo, <<":">>, [global]),  T =/= <<"t">> ],
       {ok, Tags};
-    {_, _} when Secret == undefined ->
-      lager:error("Unconfigured ~p, need to specify key in args", [?MODULE]),
-      {error, denied};
-    false ->
+    _ -> 
       {error, denied}
+  end.
+
+
+decrypt(undefined, _) ->
+  {error, denied};
+
+decrypt(HexCipher, Args) ->
+  Secret = proplists:get_value(key, Args),
+  if is_binary(Secret) ->
+    Cipher = from_hex(HexCipher),
+    C1 = crypto:stream_init(aes_ctr, Secret, ivec()),
+    {_, Data} = crypto:stream_decrypt(C1, Cipher),
+    {ok, Data};
+  true ->
+    lager:error("Unconfigured ~p, need to specify key in args", [?MODULE]),
+    {error, unconfigured}
+  end.
+
+encrypt(Data, Args) ->
+  Secret = proplists:get_value(key, Args),
+  if is_binary(Secret) ->
+    C1 = crypto:stream_init(aes_ctr, Secret, ivec()),
+    {_, Cipher} = crypto:stream_encrypt(C1, Data),
+    {ok, to_hex(Cipher)};
+  true ->
+    lager:error("Unconfigured ~p, need to specify key in args", [?MODULE]),
+    {error, unconfigured}
   end.
 
 

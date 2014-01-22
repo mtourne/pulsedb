@@ -8,34 +8,34 @@
 -export([websocket_info/3]).
 -export([websocket_terminate/3]).
 
--export([pulse_data/3, make_queries/1, resolve_embed/2]).
+-export([pulse_data/3, make_queries/1, resolve_embed/3]).
 
 -record(ws_state, {
   last_utc = [],
   pulses,
-  resolver,
-  db
+  db,
+  auth
 }).
 
 -record(page_state, {
-  resolver,
-  embed
+  embed,
+  auth
 }).
 
 init({tcp, http}, Req, Opts) -> 
   {Path, Req2} = cowboy_req:path_info(Req),
   case Path of
     [_,<<"events">>] -> {upgrade, protocol, cowboy_websocket};
-    [Embed]        -> {ok, Req2, #page_state{resolver = proplists:get_value(resolver, Opts),
-                                             embed = Embed}};
+    [Embed]        -> {ok, Req2, #page_state{embed = Embed, 
+                                             auth = lists:keyfind(auth, 1, Opts)}};
     _              -> {shutdown, Req2, undefined}
   end.
 
 terminate(_,_,_) ->
   ok.
 
-handle(Req, #page_state{resolver={Resolver,Resolve}, embed=Embed}=State) ->
-  case erlang:apply(Resolver, Resolve, [Embed, []]) of
+handle(Req, #page_state{embed=Embed, auth=Auth}=State) ->
+  case resolve_embed(Embed, Auth, []) of
     {ok, Title, _} ->
       {Path, Req5} = cowboy_req:path(Req),
       InitData = [{title, Title},
@@ -62,16 +62,16 @@ websocket_init(_Transport, Req, Opts) ->
       {PeerAddr, Req1_}
   end,
   put(name, {pulsedb_graph,Ip}),
-  {ok, Req1, #ws_state{resolver = proplists:get_value(resolver, Opts),
-                       db = proplists:get_value(db,Opts)}}.
+  {ok, Req1, #ws_state{db = proplists:get_value(db,Opts), 
+                       auth = lists:keyfind(auth, 1, Opts)}}.
  
 
 websocket_handle({text, Text}, Req, State) ->
   websocket_handle({'text:json', jsx:decode(Text)}, Req, State);
 
-websocket_handle({'text:json', Json}, Req, #ws_state{resolver={Resolver,Resolve}, db=DB}=State) ->
+websocket_handle({'text:json', Json}, Req, #ws_state{db=DB, auth=Auth}=State) ->
   Embed = proplists:get_value(<<"embed">>, Json),
-  {ok, Title, Queries} = erlang:apply(Resolver, Resolve, [Embed, []]),
+  {ok, Title, Queries} = resolve_embed(Embed, Auth, []),
   case pulse_data(Title, Queries, DB) of
     {ok, InitBody, NewState} ->
       {reply, {text, jsx:encode(InitBody)}, Req, NewState};
@@ -183,5 +183,37 @@ make_queries(Query0) ->
    pulsedb_query:render(QueryHistory)}.
 
 
-resolve_embed(Embed, _Opts) ->
-  {ok, <<"test embed">>, [Embed]}.
+resolve_embed(<<"full-", Embed/binary>>, Auth, Opts) ->
+  decrypt_embed(Embed, Auth, Opts);
+
+resolve_embed(ShortEmbed, Auth, Opts) ->
+  Embed = ShortEmbed,
+  decrypt_embed(Embed, Auth, Opts).
+
+
+decrypt_embed(Embed, {auth,AuthModule,AuthArgs}, Opts) ->
+  try AuthModule:decrypt(Embed, AuthArgs) of
+    {ok, Data} -> 
+      Json = jsx:decode(Data),
+      case is_allowed(Embed, Json, Opts) of
+        true -> 
+          Title = proplists:get_value(<<"title">>, Json, <<>>),
+          Queries = proplists:get_value(<<"queries">>, Json, []),
+          {ok, Title, Queries};
+        false ->
+          {deny, "Not allowed"}
+      end;
+    _ ->
+      {deny, <<>>}
+  catch
+    _:_ -> 
+      {deny, <<>>}
+  end;
+
+decrypt_embed(_, _, _) ->
+  {deny, "Auth module unconfigured"}.
+
+
+is_allowed(_Embed, _Json, _Opts) ->
+  % #FIXME: check domain, user etc.
+  true.
