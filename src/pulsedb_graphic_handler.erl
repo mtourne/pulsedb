@@ -192,10 +192,11 @@ make_queries(Query0) ->
   
   Query2 = pulsedb_query:remove_tag([from, to], Query1),
   QueryRealtime = Query2,
-  QueryHistory = pulsedb_query:add_tag({from, Now-360}, QueryRealtime),
+  QueryHistory1 = pulsedb_query:add_tag({from, Now-360}, QueryRealtime),
+  QueryHistory2 = pulsedb_query:add_tag({to, Now-4}, QueryHistory1),
   {Name,
    pulsedb_query:render(QueryRealtime),
-   pulsedb_query:render(QueryHistory)}.
+   pulsedb_query:render(QueryHistory2)}.
 
 
 resolve_embed(<<"full-", Embed/binary>>, Auth, Opts) ->
@@ -225,8 +226,8 @@ decrypt_embed(Embed, {auth,AuthModule,AuthArgs}, Opts) ->
       {deny, <<>>}
   end;
 
-decrypt_embed(_, _, _) ->
-  {deny, "Auth module unconfigured"}.
+decrypt_embed(Embed, false, _Opts) ->
+  {ok, <<"Graphic">>, [Embed]}.
 
 
 is_allowed(_Embed, _Json, _Opts) ->
