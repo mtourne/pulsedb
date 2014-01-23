@@ -10,52 +10,64 @@
 
 -export([pulse_data/3, make_queries/1, resolve_embed/3]).
 
+-define(HTTP_REQUEST_TIMEOUT, 5000).
+-define(WS_TIMEOUT, 3000).
+
 -record(ws_state, {
   last_utc = [],
   pulses,
   db,
   timer,
   ip,
-  auth
+  auth,
+  embed_resolver
 }).
 
 -record(page_state, {
   embed,
-  auth
+  auth,
+  embed_resolver
 }).
+
+fill_state(#page_state{}=State, Opts) ->
+  State#page_state{auth = lists:keyfind(auth, 1, Opts),
+                   embed_resolver = lists:keyfind(embed_resolver, 1, Opts)};
+
+fill_state(#ws_state{}=State, Opts) ->
+  State#ws_state{db = proplists:get_value(db,Opts), 
+                 auth = lists:keyfind(auth, 1, Opts),
+                 embed_resolver = lists:keyfind(embed_resolver, 1, Opts)}.
+
 
 init({tcp, http}, Req, Opts) -> 
   {Path, Req2} = cowboy_req:path_info(Req),
   case Path of
     [_,<<"events">>] -> {upgrade, protocol, cowboy_websocket};
-    [Embed]        -> {ok, Req2, #page_state{embed = Embed, 
-                                             auth = lists:keyfind(auth, 1, Opts)}};
-    _              -> {shutdown, Req2, undefined}
+    [Embed]          -> {ok, Req2, fill_state(#page_state{embed = Embed}, Opts)};
+    _                -> {shutdown, Req2, undefined}
   end.
 
 terminate(_,_,_) ->
   ok.
 
-handle(Req, #page_state{embed=Embed, auth=Auth}=State) ->
-  case resolve_embed(Embed, Auth, []) of
+handle(Req, #page_state{embed=Embed, auth=Auth, embed_resolver=URL}=State) ->
+  {ok, Reply} = 
+  case resolve_embed(Embed, Auth, [{embed_resolver, URL}]) of
     {ok, Title, _} ->
       {Path, Req5} = cowboy_req:path(Req),
       InitData = [{title, Title},
                   {embed, Embed},
                   {ws_path, filename:join([Path,"events"])}],
       Page = fill_template(page, InitData),
-      {ok, Reply} = cowboy_req:reply(200, headers(html), Page, Req5),
-      {ok, Reply, State};
+      cowboy_req:reply(200, headers(html), Page, Req5);
     {deny, Reason} ->
-      {ok, Reply} = cowboy_req:reply(403, headers(html), Reason, Req),
-      {ok, Reply, State};
-    _ -> 
-      {ok, Reply} = cowboy_req:reply(404, headers(html), "not found", Req),
-      {ok, Reply, State}
-  end.
-
-
--define(WS_TIMEOUT, 3000).
+      cowboy_req:reply(403, headers(html), Reason, Req);
+    {not_found, Reason} -> 
+      cowboy_req:reply(404, headers(html), Reason, Req);
+    {error, Reason} -> 
+      cowboy_req:reply(404, headers(html), Reason, Req)
+  end,
+  {ok, Reply, State}.
 
 
 websocket_init(_Transport, Req, Opts) ->
@@ -67,19 +79,19 @@ websocket_init(_Transport, Req, Opts) ->
       {PeerAddr, Req1_}
   end,
   put(name, {pulsedb_graph,Ip}),
-  DB = proplists:get_value(db,Opts),
-  Auth = lists:keyfind(auth, 1, Opts),
   self() ! init,
-  {ok, Req1, #ws_state{db = DB, auth = Auth, ip = Ip}, 2*?WS_TIMEOUT}.
+  {ok, Req1, fill_state(#ws_state{ip = Ip}, Opts), 2*?WS_TIMEOUT}.
+
 
 websocket_handle({pong, _}, Req, #ws_state{} = State) ->
   Ref = erlang:send_after(?WS_TIMEOUT, self(), ping),
   {ok, Req, State#ws_state{timer = Ref}};  
 
-websocket_handle({text, Text}, Req, #ws_state{auth=Auth}=State) ->
+
+websocket_handle({text, Text}, Req, #ws_state{auth=Auth, embed_resolver=URL}=State) ->
   Json = jsx:decode(Text),
   Embed = proplists:get_value(<<"embed">>, Json),
-  {ok, Title, Queries} = resolve_embed(Embed, Auth, []),
+  {ok, Title, Queries} = resolve_embed(Embed, Auth, [{embed_resolver, URL}]),
   case pulse_data(Title, Queries, State) of
     {ok, InitBody, NewState} ->
       {reply, {text, jsx:encode(InitBody)}, Req, NewState};
@@ -184,6 +196,7 @@ Template = <<
               Template, Data).
 
 
+headers(json) -> [{<<"content-type">>,<<"application/json">>}];
 headers(html) -> [{<<"content-type">>, <<"text/html">>}].
 
 
@@ -205,8 +218,18 @@ resolve_embed(<<"full-", Embed/binary>>, Auth, Opts) ->
   decrypt_embed(Embed, Auth, Opts);
 
 resolve_embed(ShortEmbed, Auth, Opts) ->
-  Embed = ShortEmbed,
-  decrypt_embed(Embed, Auth, Opts).
+  case proplists:get_value(embed_resolver, Opts) of
+    {embed_resolver, BaseURL} ->
+      URL = iolist_to_binary([BaseURL, "/", ShortEmbed]),
+      case lhttpc:request(URL, get, [], ?HTTP_REQUEST_TIMEOUT) of
+        {ok,{{200,_},_,Embed}}  -> decrypt_embed(Embed, Auth, Opts);
+        {ok,{{404,_},_,Reason}} -> {not_found, Reason};
+        {error, Reason}         -> {error, Reason}
+      end;
+    Other -> 
+      lager:warning("unconfigured resolver: ~p", [Other]),
+      {error, "Unconfigured resolver"}
+  end.
 
 
 decrypt_embed(Embed, {auth,AuthModule,AuthArgs}, Opts) ->
@@ -221,11 +244,13 @@ decrypt_embed(Embed, {auth,AuthModule,AuthArgs}, Opts) ->
         false ->
           {deny, "Not allowed"}
       end;
-    _ ->
-      {deny, <<>>}
+    Other ->
+      lager:warning("can't decrypt embed ~p: ~p", [Embed, Other]),
+      {error, "Can't decrypt embed"}
   catch
-    _:_ -> 
-      {deny, <<>>}
+    C:E -> 
+      lager:warning("Can't decrypt embed ~p: ~p", [Embed, {C,E}]),
+      {error, "Can't decrypt embed"}
   end;
 
 decrypt_embed(Embed, false, _Opts) ->

@@ -37,6 +37,7 @@ start() ->
   ok = application:start(ranch),
   application:start(cowlib),
   ok = application:start(cowboy),
+  ok = application:start(lhttpc),
   ok = application:start(pulsedb),
 
   application:load(lager),
