@@ -1,0 +1,13 @@
+#!/bin/sh
+
+set -e
+
+
+
+case "$1" in
+    remove|purge)
+  [ -x /etc/init.d/pulsedb ] &&
+      invoke-rc.d pulsedb stop
+      rm -rf /opt/pulsedb/erl_crash.dump /opt/pulsedb/.erlang.cookie
+  ;;
+esac

@@ -1,4 +1,25 @@
 #!/bin/sh
+### BEGIN INIT INFO
+# Provides:          pulsedb
+# Required-Start:    $local_fs $network $syslog
+# Required-Stop:     $local_fs $network $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Start/stop pulsedb server
+### END INIT INFO
+
+if [ -d /opt/pulsedb && ! -f ebin/pulsedb.beam ] ; then
+  # Launching in linux
+
+  export PIDFILE=/var/run/pulsedb/pid
+  export LOGDIR=/var/log/pulsedb
+  export HOME=/opt/pulsedb
+
+  if [ `whoami` != 'pulsedb' ] ; then
+    exec su -m pulsedb $0 $*
+  fi
+fi
+
 
 case $1 in
 "start")

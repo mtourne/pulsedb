@@ -1,0 +1,9 @@
+#!/bin/sh
+
+# if [ ! -d /etc/init ] ; then
+update-rc.d pulsedb defaults 80 80
+# fi
+
+
+
+

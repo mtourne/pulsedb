@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -e
+
+
+
+case "$1" in
+    purge)
+  update-rc.d pulsedb remove >/dev/null
+  ;;
+esac
