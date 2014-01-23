@@ -1,3 +1,4 @@
+{embed_resolver, "http://localhost:8090/embed/api/resolve"}.
 {key, "1234567890abcdef"}.
 {path, "pulses"}.
 {port, 6800}.

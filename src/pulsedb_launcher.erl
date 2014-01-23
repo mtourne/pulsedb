@@ -37,6 +37,7 @@ start() ->
   ok = application:start(ranch),
   application:start(cowlib),
   ok = application:start(cowboy),
+  ok = application:start(lhttpc),
   ok = application:start(pulsedb),
 
   application:load(lager),
@@ -78,6 +79,10 @@ start() ->
     _ -> 
       []
   end,
+  
+  ResolverSpec = {pulsedb_embed_resolver, {pulsedb_embed_resolver, start_link, [Auth ++ EmbedResolver]}, 
+                                          permanent, 100, worker, []},
+  supervisor:start_child(pulsedb_sup, ResolverSpec),
 
   StaticDir = case application:get_key(cowboy,vsn) of
     {ok, "0.9."++_} -> {dir, "webroot/js", [{mimetypes, cow_mimetypes, web}]};
