@@ -8,7 +8,7 @@
 -export([websocket_info/3]).
 -export([websocket_terminate/3]).
 
--export([pulse_data/3, make_queries/1, resolve_embed/3]).
+-export([pulse_data/3, make_queries/1]).
 
 -define(HTTP_REQUEST_TIMEOUT, 5000).
 -define(WS_TIMEOUT, 3000).
@@ -18,41 +18,28 @@
   pulses,
   db,
   timer,
-  ip,
-  auth,
-  embed_resolver
+  ip
 }).
 
 -record(page_state, {
-  embed,
-  auth,
-  embed_resolver
+  embed
 }).
 
-fill_state(#page_state{}=State, Opts) ->
-  State#page_state{auth = lists:keyfind(auth, 1, Opts),
-                   embed_resolver = lists:keyfind(embed_resolver, 1, Opts)};
 
-fill_state(#ws_state{}=State, Opts) ->
-  State#ws_state{db = proplists:get_value(db,Opts), 
-                 auth = lists:keyfind(auth, 1, Opts),
-                 embed_resolver = lists:keyfind(embed_resolver, 1, Opts)}.
-
-
-init({tcp, http}, Req, Opts) -> 
+init({tcp, http}, Req, _Opts) -> 
   {Path, Req2} = cowboy_req:path_info(Req),
   case Path of
     [_,<<"events">>] -> {upgrade, protocol, cowboy_websocket};
-    [Embed]          -> {ok, Req2, fill_state(#page_state{embed = Embed}, Opts)};
+    [Embed]          -> {ok, Req2, #page_state{embed = Embed}};
     _                -> {shutdown, Req2, undefined}
   end.
 
 terminate(_,_,_) ->
   ok.
 
-handle(Req, #page_state{embed=Embed, auth=Auth, embed_resolver=URL}=State) ->
+handle(Req, #page_state{embed=Embed}=State) ->
   {ok, Reply} = 
-  case resolve_embed(Embed, Auth, [{embed_resolver, URL}]) of
+  case resolve_embed(Embed) of
     {ok, Title, _} ->
       {Path, Req5} = cowboy_req:path(Req),
       InitData = [{title, Title},
@@ -80,7 +67,8 @@ websocket_init(_Transport, Req, Opts) ->
   end,
   put(name, {pulsedb_graph,Ip}),
   self() ! init,
-  {ok, Req1, fill_state(#ws_state{ip = Ip}, Opts), 2*?WS_TIMEOUT}.
+  DB = proplists:get_value(db,Opts),
+  {ok, Req1, #ws_state{ip = Ip, db = DB}, 2*?WS_TIMEOUT}.
 
 
 websocket_handle({pong, _}, Req, #ws_state{} = State) ->
@@ -88,10 +76,10 @@ websocket_handle({pong, _}, Req, #ws_state{} = State) ->
   {ok, Req, State#ws_state{timer = Ref}};  
 
 
-websocket_handle({text, Text}, Req, #ws_state{auth=Auth, embed_resolver=URL}=State) ->
+websocket_handle({text, Text}, Req, #ws_state{}=State) ->
   Json = jsx:decode(Text),
   Embed = proplists:get_value(<<"embed">>, Json),
-  {ok, Title, Queries} = resolve_embed(Embed, Auth, [{embed_resolver, URL}]),
+  {ok, Title, Queries} = resolve_embed(Embed),
   case pulse_data(Title, Queries, State) of
     {ok, InitBody, NewState} ->
       {reply, {text, jsx:encode(InitBody)}, Req, NewState};
@@ -214,49 +202,13 @@ make_queries(Query0) ->
    pulsedb_query:render(QueryHistory2)}.
 
 
-resolve_embed(<<"full-", Embed/binary>>, Auth, Opts) ->
-  decrypt_embed(Embed, Auth, Opts);
-
-resolve_embed(ShortEmbed, Auth, Opts) ->
-  case proplists:get_value(embed_resolver, Opts) of
-    {embed_resolver, BaseURL} ->
-      URL = iolist_to_binary([BaseURL, "/", ShortEmbed]),
-      case lhttpc:request(URL, get, [], ?HTTP_REQUEST_TIMEOUT) of
-        {ok,{{200,_},_,Embed}}  -> decrypt_embed(Embed, Auth, Opts);
-        {ok,{{404,_},_,Reason}} -> {not_found, Reason};
-        {error, Reason}         -> {error, Reason}
-      end;
-    Other -> 
-      lager:warning("unconfigured resolver: ~p", [Other]),
-      {error, "Unconfigured resolver"}
-  end.
-
-
-decrypt_embed(Embed, {auth,AuthModule,AuthArgs}, Opts) ->
-  try AuthModule:decrypt(Embed, AuthArgs) of
+resolve_embed(Embed) ->
+  case pulsedb_embed_resolver:resolve(Embed) of
     {ok, Data} -> 
       Json = jsx:decode(Data),
-      case is_allowed(Embed, Json, Opts) of
-        true -> 
-          Title = proplists:get_value(<<"title">>, Json, <<>>),
-          Queries = proplists:get_value(<<"queries">>, Json, []),
-          {ok, Title, Queries};
-        false ->
-          {deny, "Not allowed"}
-      end;
+      Title = proplists:get_value(<<"title">>, Json, <<>>),
+      Queries = proplists:get_value(<<"queries">>, Json, []),
+      {ok, Title, Queries};
     Other ->
-      lager:warning("can't decrypt embed ~p: ~p", [Embed, Other]),
-      {error, "Can't decrypt embed"}
-  catch
-    C:E -> 
-      lager:warning("Can't decrypt embed ~p: ~p", [Embed, {C,E}]),
-      {error, "Can't decrypt embed"}
-  end;
-
-decrypt_embed(Embed, false, _Opts) ->
-  {ok, <<"Graphic">>, [Embed]}.
-
-
-is_allowed(_Embed, _Json, _Opts) ->
-  % #FIXME: check domain, user etc.
-  true.
+      Other
+  end.
