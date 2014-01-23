@@ -1,0 +1,19 @@
+#!/bin/sh
+
+case $1 in
+"start")
+  erl -env ERL_LIBS deps:.. -pa ebin -detached -name pulsedb@127.0.0.1 -s pulsedb_launcher
+  ;;
+"stop")
+  erl -name debug@127.0.0.1 -eval "rpc:call('pulsedb@127.0.0.1', erlang, halt, [0]), erlang:halt(0)" -detached
+  ;;
+"run")
+  erl -env ERL_LIBS deps:.. -pa ebin -name pulsedb@127.0.0.1 -s pulsedb_launcher
+  ;;
+"shell")
+  erl -name debug@127.0.0.1 -remsh pulsedb@127.0.0.1
+  ;;
+*)
+  echo "$0 start|stop|run|shell"
+esac
+
