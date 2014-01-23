@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script src='/js/jquery.js'></script>
+    <script src='/js/highcharts.js'></script>
+    <script src='/js/graphic.js'></script>
+    <script>
+      window.onload = function(){ window.Graphic.ws_request('pulse', '{{embed}}', '{{ws_path}}'); };
+    </script>
+  </head>
+  <body>
+    <div id='pulse'></div>
+  </body>
+</html>

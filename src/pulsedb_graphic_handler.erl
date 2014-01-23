@@ -45,14 +45,14 @@ handle(Req, #page_state{embed=Embed}=State) ->
       InitData = [{title, Title},
                   {embed, Embed},
                   {ws_path, filename:join([Path,"events"])}],
-      Page = fill_template(page, InitData),
+      Page = fill_template(ok, InitData),
       cowboy_req:reply(200, headers(html), Page, Req5);
-    {deny, Reason} ->
-      cowboy_req:reply(403, headers(html), Reason, Req);
-    {not_found, Reason} -> 
-      cowboy_req:reply(404, headers(html), Reason, Req);
-    {error, Reason} -> 
-      cowboy_req:reply(404, headers(html), Reason, Req)
+    {deny, Message} ->
+      cowboy_req:reply(403, headers(html), fill_template(denied, [{message, Message}]), Req);
+    {not_found, Message} -> 
+      cowboy_req:reply(404, headers(html), fill_template(not_found, [{message, Message}]), Req);
+    {error, Message} -> 
+      cowboy_req:reply(500, headers(html), fill_template(error, [{message, Message}]), Req)
   end,
   {ok, Reply, State}.
 
@@ -161,22 +161,10 @@ websocket_terminate(Reason, _Req, #ws_state{ip = Ip}) ->
   ok.
 
 
-
-fill_template(page, Data) ->
-Template = <<
-"<html>
-  <head>
-    <script src='/js/jquery.js'></script>
-    <script src='/js/highcharts.js'></script>
-    <script src='/js/graphic.js'></script>
-    <script>
-      window.onload = function(){ window.Graphic.ws_request('pulse', '{{embed}}', '{{ws_path}}'); };
-    </script>
-  </head>
-  <body>
-    <div id='pulse'></div>
-  </body>
-</html>">>,
+fill_template(Status, Data) ->
+  TemplateName = iolist_to_binary(io_lib:format("templates/embed_~p.html", [Status])),
+  Path = filename:join(code:lib_dir(pulsedb,webroot), TemplateName),
+  {ok, Template} = file:read_file(Path),
   lists:foldl(fun ({Name_, Value}, T) ->
                 Name = iolist_to_binary(io_lib:format("{{~p}}", [Name_])),
                 re:replace(T, Name, Value, [{return, binary}])
