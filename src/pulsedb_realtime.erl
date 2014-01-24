@@ -1,11 +1,28 @@
 -module(pulsedb_realtime).
 -export([subscribe/2, unsubscribe/1, clean_query/1]).
+-export([last_valid_utc/2]).
 -export([start_link/0, init/1, terminate/2, handle_info/2, handle_call/3]).
 
 -record(subscriptions, 
  {
   clients=[] % query_key, {Name,Query}, pids
   }).
+
+% returns timestamp of the last group that can be aggregated correctly and timestamp step for the group
+last_valid_utc(Query, UTC) ->
+  {_,DS,_,_} = pulsedb_query:parse(Query),
+
+  Step = case DS of
+           undefined -> 1;
+           _ -> element(1, DS)
+         end,
+  To = case DS of
+         undefined -> UTC;
+         {1,_} -> UTC;
+         {N,_} -> (UTC div N) * N
+       end,
+  {To, Step}.
+  
 
 subscribe(Query0, Tag) ->
   Query = clean_query(Query0),
@@ -63,8 +80,11 @@ handle_info(tick, #subscriptions{clients=Clients}=State) ->
   {Now,_} = pulsedb:current_second(),
   T1 = os:timestamp(),
   Clients1 = lists:map(fun({Query,LastUTC,Pids} = Entry) ->
-    Q1 = binary:replace(Query,<<"FROM">>,integer_to_binary(Now - 20)),
-    Q2 = binary:replace(Q1,<<"TO">>,integer_to_binary(Now - 4)),
+    {To, Step} = last_valid_utc(Query, Now - 4),
+    From = To - Step * 3,
+    
+    Q1 = binary:replace(Query,<<"FROM">>,integer_to_binary(From)),
+    Q2 = binary:replace(Q1,<<"TO">>,integer_to_binary(To)),
     case pulsedb:read(Q2, memory) of
       {ok, [], _} -> 
         Entry;

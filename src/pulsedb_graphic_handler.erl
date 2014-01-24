@@ -122,9 +122,8 @@ pulse_data(Title, Queries, #ws_state{db = DB} = State) ->
 
     LastUTC = case History1 of
       [] -> undefined;
-      _ -> [{Token, element(1,lists:last(History1)) }]
+      _ -> {Token, element(1,lists:last(History1))}
     end,
-     
      {History2, Link, LastUTC}
     end
    || Query <- Queries]),
@@ -142,11 +141,11 @@ pulse_data(Title, Queries, #ws_state{db = DB} = State) ->
 websocket_info({pulse, Token, UTC, Value}, Req, #ws_state{pulses=Pulses, last_utc = LastUTCs}=State) ->
   case lists:keyfind(Token, 2, Pulses) of
     false -> 
-      {noreply, State};
+      {ok, Req, State};
     {Name,Token} ->
       case lists:keyfind(Token, 1, LastUTCs) of
         {_, LastUTC} when LastUTC - UTC >= 0 ->
-          {noreply, State};
+          {ok, Req, State};
         _ ->
           Points = [UTC*1000,Value],
           Prepared = [{shift,true}, {Name, [Points]}],
@@ -192,12 +191,15 @@ headers(html) -> [{<<"content-type">>, <<"text/html">>}].
 
 make_queries(Query0) ->
   {Now,_} = pulsedb:current_second(),
+  
+  {HistoryTo, Step} = pulsedb_realtime:last_valid_utc(Query0, Now - 4),
+  HistoryFrom = HistoryTo - Step * 60,
   {_,_,Name,_} = Query1 = pulsedb_query:parse(Query0),
   
   Query2 = pulsedb_query:remove_tag([from, to], Query1),
   QueryRealtime = Query2,
-  QueryHistory1 = pulsedb_query:add_tag({from, Now-360}, QueryRealtime),
-  QueryHistory2 = pulsedb_query:add_tag({to, Now-4}, QueryHistory1),
+  QueryHistory1 = pulsedb_query:add_tag({from, HistoryFrom}, QueryRealtime),
+  QueryHistory2 = pulsedb_query:add_tag({to, HistoryTo}, QueryHistory1),
   {Name,
    pulsedb_query:render(QueryRealtime),
    pulsedb_query:render(QueryHistory2)}.
@@ -211,7 +213,11 @@ resolve(Embed, Resolver, Auth) ->
     _ -> 
       Result = try resolve_embed(Embed, Resolver) of
         {ok, Resolved} ->
-          try decrypt_embed(Resolved, Auth)
+          try decrypt_embed(Resolved, Auth) of
+            {ok, Json} -> 
+              Data = jsx:decode(Json),
+              {ok, proplists:get_value(<<"title">>, Data),
+                   proplists:get_value(<<"queries">>, Data, [])}
           catch C:E -> {error, {C,E}}
           end;
         Other -> 
