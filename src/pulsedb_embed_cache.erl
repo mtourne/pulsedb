@@ -40,7 +40,7 @@ terminate(_,_) ->
   ok.
 
 
-handle_info(timeout, #embed_cache{cleanup_timer=Timer0}=State) ->
+handle_info(cleanup, #embed_cache{cleanup_timer=Timer0}=State) ->
   catch erlang:cancel_timer(Timer0),
   Info = ets:info(?TABLE),
   Size = proplists:get_value(size, Info),
