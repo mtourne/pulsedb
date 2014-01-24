@@ -59,6 +59,14 @@ start() ->
     {lager_file_backend, [{file,LogDir++"/pulsedb.log"},{level,info},{size,2097152},{date,"$D04"}, {count,40},
                         {formatter,lager_default_formatter},{formatter_config,FileFormat}]}
   ]),
+
+  application:set_env(lager,crash_log,LogDir ++ "/crash.log"),
+  application:set_env(lager,crash_log_msg_size,16384),
+  application:set_env(lager,crash_log_size,1048576),
+  application:set_env(lager,crash_log_date,"$D04"),
+  application:set_env(lager,crash_log_count,5),
+  application:set_env(lager,error_logger_hwm,300),
+
   ok = lager:start(),
 
   case application:get_env(pulsedb, path) of
