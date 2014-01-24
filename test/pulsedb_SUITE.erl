@@ -22,7 +22,7 @@ groups() ->
     collector_to_minute,
     % autohealing,
     downsampling,
-    downsample_data,
+    % downsample_data,
     replicator,
     % forbid_to_read_after_append,
     % forbid_to_append_after_read,
@@ -613,21 +613,21 @@ downsampling(_) ->
   ok.
 
 
-downsample_data(_) ->
-  Ticks4 = [{10, 0},{11,10},
-            {12,20},{13,30},
-            {14,40},{15,50}],
-   [{10,10},{12,50},{14,90}] = pulsedb_disk:downsample({2, <<"sum">>}, Ticks1),
+% downsample_data(_) ->
+%   Ticks4 = [{10, 0},{11,10},
+%             {12,20},{13,30},
+%             {14,40},{15,50}],
+%    [{10,10},{12,50},{14,90}] = pulsedb_disk:downsample({2, <<"sum">>}, Ticks1),
   
-  Ticks2 = [{1,10},
-            {3,30},
-            {5,50}],
-   [{0,10},{2,30},{4,50}] = pulsedb_disk:downsample({2, <<"sum">>}, Ticks2),
+%   Ticks2 = [{1,10},
+%             {3,30},
+%             {5,50}],
+%    [{0,10},{2,30},{4,50}] = pulsedb_disk:downsample({2, <<"sum">>}, Ticks2),
   
-  Ticks5 = [{9, 0},
-            {13,20},
-            {15,50}],
-   [{9,0},{12,20},{15,90}] = pulsedb_disk:downsample({3, <<"sum">>}, Ticks3).
+%   Ticks5 = [{9, 0},
+%             {13,20},
+%             {15,50}],
+%    [{9,0},{12,20},{15,90}] = pulsedb_disk:downsample({3, <<"sum">>}, Ticks3).
 
 
 replicator(_) ->
