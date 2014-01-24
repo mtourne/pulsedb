@@ -5,3 +5,4 @@ test/temp
 logs
 log
 deps
+.vagrant

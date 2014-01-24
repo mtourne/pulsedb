@@ -1,11 +1,11 @@
-VERSION := $(shell ./priv/version.erl)
+VERSION := $(shell ./deploy/version.erl)
 
 DEBIAN =  -s dir --url http://flussonic.com/ --description "Pulse collecting server" \
 -m "Max Lapshin <max@flussonic.com>" --vendor "Flussonic, LLC" --license MIT \
---post-install ../priv/postinst --pre-uninstall ../priv/prerm --post-uninstall ../priv/postrm \
+--post-install ../deploy/postinst --pre-uninstall ../deploy/prerm --post-uninstall ../deploy/postrm \
 --config-files /etc/pulsedb/pulsedb.config
 
-FPM = ../priv/epm.erl
+FPM = ../deploy/epm.erl
 
 
 
