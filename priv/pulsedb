@@ -8,7 +8,7 @@
 # Short-Description: Start/stop pulsedb server
 ### END INIT INFO
 
-if [ -d /opt/pulsedb && ! -f ebin/pulsedb.beam ] ; then
+if [ -d /opt/pulsedb -a ! -f ebin/pulsedb.beam ] ; then
   # Launching in linux
 
   export PIDFILE=/var/run/pulsedb/pid

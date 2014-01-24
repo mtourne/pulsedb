@@ -1,5 +1,19 @@
-{embed_resolver, "http://localhost:8090/embed/api/resolve"}.
-{key, "1234567890abcdef"}.
-{path, "pulses"}.
+
+% HTTP port where to listen for incoming connections
 {port, 6800}.
+
+
+% Path to store pulsedb data
+{path, "/var/lib/pulsedb"}.
+
+% Authentication key, used for accessing data
+{key, "1234567890abcdef"}.
+
+% This is a backend that will resolve your graphics into queries.
+%{embed_resolver, "http://localhost:8090/embed/api/resolve"}.
+
+
+
+
+
 

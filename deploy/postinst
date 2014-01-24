@@ -4,6 +4,10 @@
 update-rc.d pulsedb defaults 80 80
 # fi
 
+adduser --system --home /var/lib/pulsedb --disabled-password --gecos "" pulsedb 
 
+mkdir /var/log/pulsedb
+chown pulsedb:pulsedb /var/log/pulsedb
 
+invoke-rc.d pulsedb start
 

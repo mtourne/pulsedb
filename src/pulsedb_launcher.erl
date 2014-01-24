@@ -22,8 +22,9 @@ pushers() ->
 start() ->
   application:load(pulsedb),
 
-  case file:consult("priv/pulsedb.config") of
-    {ok, Env} ->
+  case file:path_consult(["priv", "/etc/pulsedb"], "pulsedb.config") of
+    {ok, Env, ConfigPath} ->
+      error_logger:info_msg("Reading config from ~s", [ConfigPath]),
       [application:set_env(pulsedb, K, V) || {K,V} <- Env];
     _ ->
       ok
