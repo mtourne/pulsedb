@@ -63,7 +63,7 @@ handle_info(tick, #subscriptions{clients=Clients}=State) ->
   {Now,_} = pulsedb:current_second(),
   T1 = os:timestamp(),
   Clients1 = lists:map(fun({Query,LastUTC,Pids} = Entry) ->
-    Q1 = binary:replace(Query,<<"FROM">>,integer_to_binary(Now - 5)),
+    Q1 = binary:replace(Query,<<"FROM">>,integer_to_binary(Now - 20)),
     Q2 = binary:replace(Q1,<<"TO">>,integer_to_binary(Now - 4)),
     case pulsedb:read(Q2, memory) of
       {ok, [], _} -> 
