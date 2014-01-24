@@ -50,7 +50,7 @@ package: tmproot
 
 test:
 	mkdir -p logs
-	ct_run -pa ebin -logdir logs/ -dir test/
+	ct_run -pa ebin -pa deps/*/ebin -logdir logs/ -dir test/
 
 .PHONY: test
 

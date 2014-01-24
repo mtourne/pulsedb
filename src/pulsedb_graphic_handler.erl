@@ -18,28 +18,41 @@
   pulses,
   db,
   timer,
-  ip
+  ip,
+  resolver,
+  auth
 }).
 
 -record(page_state, {
-  embed
+  embed,
+  resolver,
+  auth
 }).
 
 
-init({tcp, http}, Req, _Opts) -> 
+init_state(#page_state{}=State, Opts) ->
+  State#page_state{auth = lists:keyfind(auth, 1, Opts),
+                   resolver = lists:keyfind(resolver, 1, Opts)};
+
+init_state(#ws_state{}=State, Opts) ->
+  State#ws_state{db = proplists:get_value(db, Opts),
+                 auth = lists:keyfind(auth, 1, Opts),
+                 resolver = lists:keyfind(resolver, 1, Opts)}.
+
+init({tcp, http}, Req, Opts) -> 
   {Path, Req2} = cowboy_req:path_info(Req),
   case Path of
     [_,<<"events">>] -> {upgrade, protocol, cowboy_websocket};
-    [Embed]          -> {ok, Req2, #page_state{embed = Embed}};
+    [Embed]          -> {ok, Req2, init_state(#page_state{embed = Embed}, Opts)};
     _                -> {shutdown, Req2, undefined}
   end.
 
 terminate(_,_,_) ->
   ok.
 
-handle(Req, #page_state{embed=Embed}=State) ->
+handle(Req, #page_state{embed=Embed, resolver=Resolver, auth=Auth}=State) ->
   {ok, Reply} = 
-  case resolve_embed(Embed) of
+  case resolve(Embed,Resolver,Auth) of
     {ok, Title, _} ->
       {Path, Req5} = cowboy_req:path(Req),
       InitData = [{title, Title},
@@ -52,7 +65,8 @@ handle(Req, #page_state{embed=Embed}=State) ->
     {not_found, Message} -> 
       cowboy_req:reply(404, headers(html), fill_template(not_found, [{message, Message}]), Req);
     {error, Message} -> 
-      cowboy_req:reply(500, headers(html), fill_template(error, [{message, Message}]), Req)
+      lager:warning("embed resolving error ~p", [Message]),
+      cowboy_req:reply(500, headers(html), fill_template(error, []), Req)
   end,
   {ok, Reply, State}.
 
@@ -67,8 +81,7 @@ websocket_init(_Transport, Req, Opts) ->
   end,
   put(name, {pulsedb_graph,Ip}),
   self() ! init,
-  DB = proplists:get_value(db,Opts),
-  {ok, Req1, #ws_state{ip = Ip, db = DB}, 2*?WS_TIMEOUT}.
+  {ok, Req1, init_state(#ws_state{ip = Ip}, Opts), 2*?WS_TIMEOUT}.
 
 
 websocket_handle({pong, _}, Req, #ws_state{} = State) ->
@@ -76,10 +89,10 @@ websocket_handle({pong, _}, Req, #ws_state{} = State) ->
   {ok, Req, State#ws_state{timer = Ref}};  
 
 
-websocket_handle({text, Text}, Req, #ws_state{}=State) ->
+websocket_handle({text, Text}, Req, #ws_state{resolver=Resolver, auth=Auth}=State) ->
   Json = jsx:decode(Text),
   Embed = proplists:get_value(<<"embed">>, Json),
-  {ok, Title, Queries} = resolve_embed(Embed),
+  {ok, Title, Queries} = resolve(Embed, Resolver, Auth),
   case pulse_data(Title, Queries, State) of
     {ok, InitBody, NewState} ->
       {reply, {text, jsx:encode(InitBody)}, Req, NewState};
@@ -190,13 +203,52 @@ make_queries(Query0) ->
    pulsedb_query:render(QueryHistory2)}.
 
 
-resolve_embed(Embed) ->
-  case pulsedb_embed_resolver:resolve(Embed) of
-    {ok, Data} -> 
-      Json = jsx:decode(Data),
-      Title = proplists:get_value(<<"title">>, Json, <<>>),
-      Queries = proplists:get_value(<<"queries">>, Json, []),
-      {ok, Title, Queries};
-    Other ->
-      Other
+
+resolve(Embed, Resolver, Auth) ->
+  case pulsedb_embed_cache:read(Embed) of
+    {ok, Value} -> 
+      Value;
+    _ -> 
+      Result = try resolve_embed(Embed, Resolver) of
+        {ok, Resolved} ->
+          try decrypt_embed(Resolved, Auth)
+          catch C:E -> {error, {C,E}}
+          end;
+        Other -> 
+          Other
+      catch
+        C:E -> {error, {C,E}}
+      end,
+      pulsedb_embed_cache:write(Embed, Result),
+      Result
   end.
+
+
+
+
+
+resolve_embed(<<"full-", Embed/binary>>, _) ->
+  {ok, Embed};
+
+resolve_embed(ShortEmbed, {resolver, url, BaseURL}) ->
+  URL = iolist_to_binary([BaseURL, "/", ShortEmbed]),
+  case lhttpc:request(URL, get, [], ?HTTP_REQUEST_TIMEOUT) of
+    {ok,{{200,_},_,Embed}}  -> {ok, Embed};
+    {ok,{{403,_},_,Reason}} -> {deny, Reason};
+    {ok,{{404,_},_,Reason}} -> {not_found, Reason};
+    {error, Reason}         -> {error, Reason};
+    Other                   -> {error, Other}
+  end;
+
+resolve_embed(ShortEmbed, {resolver, Module, ResolveFn}) ->
+  Module:ResolveFn(ShortEmbed);
+
+resolve_embed(Embed, false) ->
+  {ok, Embed}.
+
+
+decrypt_embed(Embed, {auth,AuthModule,AuthArgs}) ->
+  AuthModule:decrypt(Embed, AuthArgs);
+
+decrypt_embed(Embed, false) ->
+  {ok, <<"Graphic">>, [Embed]}.
