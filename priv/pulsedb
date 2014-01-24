@@ -11,13 +11,14 @@
 if [ -d /opt/pulsedb -a ! -f ebin/pulsedb.beam ] ; then
   # Launching in linux
 
-  export PIDFILE=/var/run/pulsedb/pid
   export LOGDIR=/var/log/pulsedb
-  export HOME=/opt/pulsedb
+  export HOME=/var/lib/pulsedb
 
   if [ `whoami` != 'pulsedb' ] ; then
     exec su -m pulsedb $0 $*
   fi
+
+  cd /opt/pulsedb
 fi
 
 

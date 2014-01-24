@@ -44,7 +44,11 @@ start() ->
   application:load(lager),
   application:set_env(lager,crash_log,undefined),
 
-  LogDir = "log",
+  LogDir = case os:getenv("LOGDIR") of
+    false -> "log";
+    OsLogDir -> OsLogDir
+  end,
+
   ConsoleFormat = [time, " ", pid, {pid, [" "], ""},
     {module, [module, ":", line, " "], ""},
     message, "\n"
