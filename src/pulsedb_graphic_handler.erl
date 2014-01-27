@@ -138,7 +138,7 @@ pulse_data(Title, Queries, #ws_state{db = DB} = State) ->
 
 
 
-websocket_info({pulse, Token, UTC, Value}, Req, #ws_state{pulses=Pulses, last_utc = LastUTCs}=State) ->
+websocket_info({pulse, Token, UTC, Value} = P, Req, #ws_state{pulses=Pulses, last_utc = LastUTCs}=State) ->
   case lists:keyfind(Token, 2, Pulses) of
     false -> 
       {ok, Req, State};
@@ -213,11 +213,7 @@ resolve(Embed, Resolver, Auth) ->
     _ -> 
       Result = try resolve_embed(Embed, Resolver) of
         {ok, Resolved} ->
-          try decrypt_embed(Resolved, Auth) of
-            {ok, Json} -> 
-              Data = jsx:decode(Json),
-              {ok, proplists:get_value(<<"title">>, Data),
-                   proplists:get_value(<<"queries">>, Data, [])}
+          try decrypt_embed(Resolved, Auth)
           catch C:E -> {error, {C,E}}
           end;
         Other -> 
@@ -254,7 +250,10 @@ resolve_embed(Embed, false) ->
 
 
 decrypt_embed(Embed, {auth,AuthModule,AuthArgs}) ->
-  AuthModule:decrypt(Embed, AuthArgs);
+  {ok, Json} = AuthModule:decrypt(Embed, AuthArgs),
+  Data = jsx:decode(Json),
+  {ok, proplists:get_value(<<"title">>, Data),
+       proplists:get_value(<<"queries">>, Data, [])};
 
 decrypt_embed(Embed, false) ->
   {ok, <<"Graphic">>, [Embed]}.

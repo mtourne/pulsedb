@@ -1,6 +1,6 @@
 -module(pulsedb_realtime_SUITE).
 -compile(export_all).
--define(TICK_COUNT, 5).
+-define(TICK_COUNT, 3).
 
 
 all() ->
@@ -26,12 +26,13 @@ end_per_suite(Config) ->
 
 subscribe(_) ->
   N = ?TICK_COUNT,
-  {UTC,_} = pulsedb:current_second(),
+  {UTC,Delay} = pulsedb:current_second(),
+  ct:pal("DELAY ~p", [Delay]),
   pulsedb_realtime:subscribe(<<"input">>, i),
   Self = self(),
   spawn_link(fun () -> send_tick(100, {<<"input">>, UTC-100, 1, [{<<"name">>,<<"src1">>}]}), Self ! go end),
   receive go -> ok after 1000 -> error(timeout) end,
-  ok = collect_ticks(N,500).
+  ok = collect_ticks(N,Delay).
 
 
 % subscribe_twice(_) ->
