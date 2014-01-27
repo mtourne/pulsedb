@@ -1,6 +1,5 @@
 -module(pulsedb_realtime).
--export([subscribe/2, unsubscribe/1, clean_query/1]).
--export([last_valid_utc/2]).
+-export([subscribe/2, unsubscribe/1]).
 -export([start_link/0, init/1, terminate/2, handle_info/2, handle_call/3]).
 
 -record(subscriptions, 
@@ -8,24 +7,10 @@
   clients=[] % query_key, {Name,Query}, pids
   }).
 
-% returns timestamp of the last group that can be aggregated correctly and timestamp step for the group
-last_valid_utc(Query, UTC) ->
-  {_,DS,_,_} = pulsedb_query:parse(Query),
-
-  Step = case DS of
-           undefined -> 1;
-           _ -> element(1, DS)
-         end,
-  To = case DS of
-         undefined -> UTC;
-         {1,_} -> UTC;
-         {N,_} -> (UTC div N) * N
-       end,
-  {To, Step}.
-  
 
 subscribe(Query0, Tag) ->
-  Query = clean_query(Query0),
+  Query1 = pulsedb_query:parse(Query0),
+  Query = pulsedb_query:remove_tag([from,to],Query1),
   gen_server:call(?MODULE, {subscribe, self(), Query, Tag}).
 
 
@@ -79,11 +64,11 @@ handle_info(tick, #subscriptions{clients=Clients}=State) ->
   {Now,_} = pulsedb:current_second(),
   T1 = os:timestamp(),
   Clients1 = lists:map(fun({Query,LastUTC,Pids} = Entry) ->
-    {To, Step} = last_valid_utc(Query, Now - 4),
+    Step = pulsedb_query:downsampler_step(Query),
+    To = Now - 4,
     From = To - Step * 3,
-    
-    Q1 = binary:replace(Query,<<"FROM">>,integer_to_binary(From)),
-    Q2 = binary:replace(Q1,<<"TO">>,integer_to_binary(To)),
+    Q1 = pulsedb_query:set_range(From, To, Query),
+    Q2 = pulsedb_query:render(Q1),
     case pulsedb:read(Q2, memory) of
       {ok, [], _} -> 
         Entry;
@@ -121,39 +106,3 @@ find_subscription(Pid, Tag, Pids) ->
   lists:partition(fun ({Pid0,Tag0,_}) ->
                     Pid0 == Pid andalso Tag0 == Tag
                   end, Pids).
-
-clean_query(Query0) ->
-  {Aggregator, Downsampler, Name, Tags0} = pulsedb:parse_query(Query0),
-  Tags = [{K,V} || {K,V} <- Tags0, is_binary(K)] ++ [{<<"from">>,<<"FROM">>},{<<"to">>,<<"TO">>}],
-  %agg:aggregator ":" ds:downsampler ":" mn:metric_name "{" tags:tags / 
-  Parts = [
-    case Aggregator of 
-      undefined -> <<>>;
-      _ -> <<Aggregator/binary, ":">>
-    end,
-    case Downsampler of
-      {N_,Fn} -> 
-        N = integer_to_binary(N_),
-        <<N/binary,"s-",Fn/binary,":">>;
-      _ -> <<>>
-    end,
-    Name,
-    tags_to_text(lists:usort(Tags))],
-  iolist_to_binary(Parts).
-
-tags_to_text([]) -> <<>>;
-tags_to_text(Tags_) -> 
-  Tags = tags_to_text0(Tags_),
-  <<"{", Tags/binary, "}">>.
-
-tags_to_text0([Tag0]) -> tag_to_text(Tag0);
-tags_to_text0([Tag0|Rest0]) ->
-  Tag = tag_to_text(Tag0),
-  Rest = tags_to_text0(Rest0),
-  <<Tag/binary, ",", Rest/binary>>.
-
-tag_to_text({Tag, Value}) when is_atom(Tag) -> 
-  tag_to_text({atom_to_binary(Tag, latin1), Value});
-tag_to_text({Tag, Value}) when is_binary(Tag) ->
-  <<Tag/binary, "=", Value/binary>>.
-

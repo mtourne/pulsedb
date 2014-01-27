@@ -1,11 +1,24 @@
 -module(pulsedb_query).
 -export([parse/1,render/1]).
 -export([tag/2, remove_tag/2, add_tag/2]).
+-export([set_range/3, downsampler_step/1]).
+
+-record(query, {
+  aggregator, 
+  downsampler,
+  name,
+  tags = []
+ }).
 
 parse(Query) ->
-  pulsedb_parser:parse(Query).
+  {A,D,N,T} = pulsedb_parser:parse(Query),
+  #query{aggregator=A, downsampler=D, name=N, tags=lists:sort(T)}.
 
-render({Aggregator, Downsampler, Name, Tags}) ->
+
+
+render(#query{aggregator=Aggregator, 
+              downsampler=Downsampler, 
+              name=Name, tags=Tags}) ->
   Parts = [
     case Aggregator of 
       undefined -> <<>>;
@@ -22,24 +35,35 @@ render({Aggregator, Downsampler, Name, Tags}) ->
   iolist_to_binary(Parts).
 
 
-tag(Tag, {_,_,_,Tags}) ->
+set_range(From0, To0, #query{}=Q) when is_number(From0), is_number(To0) ->
+  Step = downsampler_step(Q),
+  To   = To0 - (To0 rem Step) - 1,
+  From = case From0 - (From0 rem Step) of
+            Value when Value > To -> Value - Step;
+            Value                 -> Value
+          end,
+  add_tag([{from, From}, {to, To}], Q).
+  
+
+
+tag(Tag, #query{tags=Tags}) ->
   proplists:get_value(Tag, Tags).
 
 
-add_tag(Tags, Query) when is_list(Tags) ->
+add_tag(Tags, #query{}=Query) when is_list(Tags) ->
   lists:foldl(fun add_tag/2, Query, Tags);
                                         
-add_tag({Tag,_}=T, {A,D,N,Tags0}) ->
+add_tag({Tag,_}=T, #query{tags=Tags0}=Q) ->
   Tags = lists:keystore(Tag, 1, Tags0, T),
-  {A,D,N,Tags}.
+  Q#query{tags=Tags}.
 
 
-remove_tag(Tags, Query) when is_list(Tags) ->
+remove_tag(Tags, #query{}=Query) when is_list(Tags) ->
   lists:foldl(fun remove_tag/2, Query, Tags);  
 
-remove_tag(Tag, {A,D,N,Tags0}) ->
+remove_tag(Tag, #query{tags=Tags0}=Q) ->
   Tags = lists:keydelete(Tag, 1, Tags0),
-  {A,D,N,Tags}.
+  Q#query{tags=Tags}.
 
 
 
@@ -66,3 +90,10 @@ value_to_text(Value) when is_atom(Value) ->
   atom_to_binary(Value, latin1);
 value_to_text(Value) -> 
   Value.
+
+
+downsampler_step(#query{downsampler=Downsampler}) ->
+  case Downsampler of
+    {S,_} -> S;
+    undefined -> 1
+  end.

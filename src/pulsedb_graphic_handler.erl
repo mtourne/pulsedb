@@ -191,18 +191,20 @@ headers(html) -> [{<<"content-type">>, <<"text/html">>}].
 
 make_queries(Query0) ->
   {Now,_} = pulsedb:current_second(),
+  Q1 = pulsedb_query:parse(Query0),
+  Q2 = pulsedb_query:remove_tag([from, to], Q1),
+  Step = pulsedb_query:downsampler_step(Q2),
+  To   = Now - 4,
+  From = To - Step * 60,
   
-  {HistoryTo, Step} = pulsedb_realtime:last_valid_utc(Query0, Now - 4),
-  HistoryFrom = HistoryTo - Step * 60,
-  {_,_,Name,_} = Query1 = pulsedb_query:parse(Query0),
+  QueryHistory = pulsedb_query:set_range(From, To, Q1),
+  QueryRealtime = Q2,
   
-  Query2 = pulsedb_query:remove_tag([from, to], Query1),
-  QueryRealtime = Query2,
-  QueryHistory1 = pulsedb_query:add_tag({from, HistoryFrom}, QueryRealtime),
-  QueryHistory2 = pulsedb_query:add_tag({to, HistoryTo}, QueryHistory1),
-  {Name,
+  Name = pulsedb_query:remove_tag([<<"account">>], QueryRealtime),
+  
+  {pulsedb_query:render(Name),
    pulsedb_query:render(QueryRealtime),
-   pulsedb_query:render(QueryHistory2)}.
+   pulsedb_query:render(QueryHistory)}.
 
 
 
