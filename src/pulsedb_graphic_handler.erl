@@ -138,7 +138,7 @@ pulse_data(Title, Queries, #ws_state{db = DB} = State) ->
 
 
 
-websocket_info({pulse, Token, UTC, Value} = P, Req, #ws_state{pulses=Pulses, last_utc = LastUTCs}=State) ->
+websocket_info({pulse, Token, UTC, Value}, Req, #ws_state{pulses=Pulses, last_utc = LastUTCs}=State) ->
   case lists:keyfind(Token, 2, Pulses) of
     false -> 
       {ok, Req, State};
