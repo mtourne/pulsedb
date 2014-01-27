@@ -61,7 +61,6 @@ handle_call({subscribe, Pid, Query, Tag},_, #subscriptions{clients=Clients0}=Sta
       Ref = erlang:monitor(process, Pid),
       [{Query,undefined,[{Pid,Tag,Ref}]} | Clients0]
   end,
-  
   {reply, ok, State#subscriptions{clients=Clients}};
 
 
@@ -114,7 +113,7 @@ handle_info(tick, #subscriptions{clients=Clients}=State) ->
 handle_info({'DOWN', _, _, Pid, _}, #subscriptions{clients=Clients0}=State) ->
   Clients1 = [{Query, UTC, lists:keydelete(Pid,1,Pids)} 
              || {Query, UTC, Pids} <- Clients0],
-  Clients = [C || {Pids,_,_}=C <- Clients1, length(Pids) > 0],
+  Clients = [C || {_,_,Pids}=C <- Clients1, length(Pids) > 0],
   {noreply, State#subscriptions{clients=Clients}}.
 
 
