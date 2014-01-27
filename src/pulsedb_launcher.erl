@@ -88,7 +88,7 @@ start() ->
   
   EmbedResolver = case application:get_env(pulsedb, embed_resolver) of
     {ok, Url} ->
-      [{embed_resolver,Url}];
+      [{resolver, url, Url}];
     _ -> 
       []
   end,
