@@ -101,7 +101,10 @@ handle_info(tick, #subscriptions{clients=Clients}=State) ->
     end
   end, Clients),
   T2 = os:timestamp(),
-  lager:debug("tick took ~B us", [timer:now_diff(T2,T1)]),
+  case timer:now_diff(T2,T1) of
+    T when T > 100 -> lager:debug("tick took ~B us", [timer:now_diff(T2,T1)]);
+    _ -> ok
+  end,
   {_,Delay} = pulsedb:current_second(),
   erlang:send_after(Delay, self(), tick),
   {noreply, State#subscriptions{clients = Clients1}};
