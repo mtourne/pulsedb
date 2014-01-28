@@ -89,7 +89,7 @@ read(Name, Query, DB) when DB == seconds orelse DB == minutes ->
   From = (From_ div Step)*Step,
   To = (To_ div Step)*Step,
 
-  Ticks = lists:seq(From, To, Step),
+  Ticks = lists:seq(From, To-1, Step),
 
   Values1 = lists:flatmap(fun(Metric) ->
     lists:flatmap(fun(I) ->

@@ -5,10 +5,15 @@
     <script src='/js/highcharts.js'></script>
     <script src='/js/graphic.js'></script>
     <script>
-      window.onload = function(){ window.Graphic.ws_request('pulse', '{{embed}}', '{{ws_path}}'); };
+      function connect(){
+        window.Graphic.init({{config}});
+        window.Graphic.request('{{protocol}}', '{{step}}');
+      }
+      window.onload = connect;
     </script>
   </head>
   <body>
+    <div id='range'></div>
     <div id='pulse'></div>
   </body>
 </html>

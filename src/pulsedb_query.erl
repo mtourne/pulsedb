@@ -1,7 +1,7 @@
 -module(pulsedb_query).
 -export([parse/1,render/1]).
 -export([tag/2, remove_tag/2, add_tag/2]).
--export([set_range/3, downsampler_step/1]).
+-export([set_range/3, downsampler_step/1, set_step/2]).
 
 -record(query, {
   aggregator, 
@@ -37,13 +37,33 @@ render(#query{aggregator=Aggregator,
 
 set_range(From0, To0, #query{}=Q) when is_number(From0), is_number(To0) ->
   Step = downsampler_step(Q),
-  To   = To0 - (To0 rem Step) - 1,
-  From = case From0 - (From0 rem Step) of
-            Value when Value > To -> Value - Step;
-            Value                 -> Value
-          end,
-  add_tag([{from, From}, {to, To}], Q).
-  
+  case Step of
+    1 -> 
+      add_tag([{from, From0}, {to, To0}], Q);
+    _ ->
+      To   = ((To0 div Step) - 1)*Step,% To0 - (To0 rem Step),
+      From = case From0 - (From0 rem Step) of
+               Value when Value > To -> Value - Step;
+               Value                 -> Value
+             end,
+      add_tag([{from, From}, {to, To}], Q)
+  end.
+
+
+downsampler_step(#query{downsampler=Downsampler}) ->
+  case Downsampler of
+    {S,_} -> S;
+    undefined -> 1
+  end.
+
+
+set_step(Step, #query{aggregator=Aggregator, downsampler=Downsampler}=Q) when is_number(Step) ->
+  case {Aggregator, Downsampler} of
+    {A, {_, Fn}} when is_binary(A) -> 
+      Q#query{downsampler={Step, Fn}};
+    _ ->
+      Q#query{aggregator= <<"sum">>, downsampler={Step, <<"avg">>}}
+  end.
 
 
 tag(Tag, #query{tags=Tags}) ->
@@ -90,10 +110,3 @@ value_to_text(Value) when is_atom(Value) ->
   atom_to_binary(Value, latin1);
 value_to_text(Value) -> 
   Value.
-
-
-downsampler_step(#query{downsampler=Downsampler}) ->
-  case Downsampler of
-    {S,_} -> S;
-    undefined -> 1
-  end.

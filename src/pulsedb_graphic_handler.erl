@@ -8,10 +8,13 @@
 -export([websocket_info/3]).
 -export([websocket_terminate/3]).
 
--export([pulse_data/3, make_queries/1]).
+-export([pulse_subscribe/4, pulse_history/4, make_queries/2]).
 
 -define(HTTP_REQUEST_TIMEOUT, 5000).
 -define(WS_TIMEOUT, 3000).
+
+-define(WS_PATH, <<"events">>).
+-define(HTTP_PATH, <<"history">>).
 
 -record(ws_state, {
   last_utc = [],
@@ -26,12 +29,15 @@
 -record(page_state, {
   embed,
   resolver,
-  auth
+  auth,
+  mode,
+  db
 }).
 
 
 init_state(#page_state{}=State, Opts) ->
-  State#page_state{auth = lists:keyfind(auth, 1, Opts),
+  State#page_state{db = proplists:get_value(db, Opts),
+                   auth = lists:keyfind(auth, 1, Opts),
                    resolver = lists:keyfind(resolver, 1, Opts)};
 
 init_state(#ws_state{}=State, Opts) ->
@@ -42,22 +48,24 @@ init_state(#ws_state{}=State, Opts) ->
 init({tcp, http}, Req, Opts) -> 
   {Path, Req2} = cowboy_req:path_info(Req),
   case Path of
-    [_,<<"events">>] -> {upgrade, protocol, cowboy_websocket};
-    [Embed]          -> {ok, Req2, init_state(#page_state{embed = Embed}, Opts)};
-    _                -> {shutdown, Req2, undefined}
+    [_,?WS_PATH]       -> {upgrade, protocol, cowboy_websocket};
+    [Embed,?HTTP_PATH] -> {ok, Req2, init_state(#page_state{embed = Embed, mode=history}, Opts)};
+    [Embed]            -> {ok, Req2, init_state(#page_state{embed = Embed, mode=subscribe}, Opts)};
+    _                  -> {shutdown, Req2, undefined}
   end.
 
 terminate(_,_,_) ->
   ok.
 
-handle(Req, #page_state{embed=Embed, resolver=Resolver, auth=Auth}=State) ->
+%%%%%%
+% PAGE
+%%%%%%
+handle(Req, #page_state{embed=Embed, resolver=Resolver, auth=Auth, mode=subscribe}=State) ->
   {ok, Reply} = 
   case resolve(Embed,Resolver,Auth) of
-    {ok, Title, _} ->
+    {ok, Title, Queries} ->
       {Path, Req5} = cowboy_req:path(Req),
-      InitData = [{title, Title},
-                  {embed, Embed},
-                  {ws_path, filename:join([Path,"events"])}],
+      InitData = page_initial_data(Title, Embed, Path, Queries),
       Page = fill_template(ok, InitData),
       cowboy_req:reply(200, headers(html), Page, Req5);
     {deny, Message} ->
@@ -68,9 +76,40 @@ handle(Req, #page_state{embed=Embed, resolver=Resolver, auth=Auth}=State) ->
       lager:warning("embed resolving error ~p", [Message]),
       cowboy_req:reply(500, headers(html), fill_template(error, []), Req)
   end,
+  {ok, Reply, State};
+
+
+%%%%%%%%%
+% HISTORY
+%%%%%%%%%
+handle(Req, #page_state{embed=Embed, resolver=Resolver, auth=Auth, mode=history}=State) ->
+  {ok, Reply} = 
+  case resolve(Embed,Resolver,Auth) of
+    {ok, Title, Queries} ->
+      {Step, Req1} = cowboy_req:header(<<"x-use-step">>, Req),
+      Opts = use_step(Step),
+      case pulse_history(Title, Queries, State, Opts) of
+        {ok, InitBody} ->
+          cowboy_req:reply(200, headers(json), jsx:encode(InitBody), Req1);
+        Other ->
+          lager:info("pulse history problem: ~p", [Other]),
+          cowboy_req:reply(200, headers(json), "", Req1)
+      end;
+    {deny, Message} ->
+      cowboy_req:reply(403, headers(json), jsx:encode([{error, Message}]), Req);
+    {not_found, Message} -> 
+      cowboy_req:reply(404, headers(json), jsx:encode([{error, Message}]), Req);
+    {error, Message} -> 
+      lager:warning("embed resolving error ~p", [Message]),
+      cowboy_req:reply(500, headers(json), jsx:encode([{error, Message}]), Req)
+  end,
   {ok, Reply, State}.
 
 
+
+%%%%%%%%%%%
+% WEBSOCKET
+%%%%%%%%%%%
 websocket_init(_Transport, Req, Opts) ->
   {Ip, Req1} = case cowboy_req:header(<<"x-real-ip">>, Req) of
     {undefined, Req_} ->
@@ -92,8 +131,10 @@ websocket_handle({pong, _}, Req, #ws_state{} = State) ->
 websocket_handle({text, Text}, Req, #ws_state{resolver=Resolver, auth=Auth}=State) ->
   Json = jsx:decode(Text),
   Embed = proplists:get_value(<<"embed">>, Json),
+  Opts = use_step(proplists:get_value(<<"use_step">>, Json)),
+    
   {ok, Title, Queries} = resolve(Embed, Resolver, Auth),
-  case pulse_data(Title, Queries, State) of
+  case pulse_subscribe(Title, Queries, State, Opts) of
     {ok, InitBody, NewState} ->
       {reply, {text, jsx:encode(InitBody)}, Req, NewState};
     _ ->
@@ -105,39 +146,9 @@ websocket_handle(Data, Req, State) ->
   {ok, Req, State}.
 
 
-
-pulse_data(Title, Queries, #ws_state{db = DB} = State) ->
-  {History, PulseTokens, LastUTCs1} = lists:unzip3(
-  [begin
-    {Name, QueryRealtime, QueryHistory} = make_queries(Query),
-    {ok,History1,_} = pulsedb:read(QueryHistory, DB),
-    HistoryData = [[T*1000, V] || {T, V} <- History1],
-
-    Token = make_ref(),
-    pulsedb:subscribe(QueryRealtime, Token),
-    lager:info("Subscribed websocket ~p to pulse ~s", [get(name), QueryRealtime]),
-     
-    Link = {Name, Token},
-    History2 = [{name,Name},{data, HistoryData}],
-
-    LastUTC = case History1 of
-      [] -> undefined;
-      _ -> {Token, element(1,lists:last(History1))}
-    end,
-     {History2, Link, LastUTC}
-    end
-   || Query <- Queries]),
-  
-  
-  LastUTCs = [L || L <- LastUTCs1, is_tuple(L)],
-  Config = [
-    {title, Title}
-  ],
-  Reply = [{init, true}, {options, Config}, {data, History}],
-  {ok, Reply, State#ws_state{pulses=PulseTokens, last_utc = LastUTCs}}.
-
-
-
+%%%%%%%%%%%%%%%%%%%%
+% WEBSOCKET MESSAGES
+%%%%%%%%%%%%%%%%%%%%
 websocket_info({pulse, Token, UTC, Value}, Req, #ws_state{pulses=Pulses, last_utc = LastUTCs}=State) ->
   case lists:keyfind(Token, 2, Pulses) of
     false -> 
@@ -173,6 +184,58 @@ websocket_terminate(Reason, _Req, #ws_state{ip = Ip}) ->
   ok.
 
 
+
+%%%%%%%%%
+% BACKEND
+%%%%%%%%%
+pulse_subscribe(Title, Queries, #ws_state{db = DB} = State, Opts) ->
+  {History, PulseTokens, LastUTCs1} = lists:unzip3(
+  [begin
+    {Name, QueryRealtime, QueryHistory} = make_queries(Query, Opts),
+     
+     
+    {ok,History1,_} = pulsedb:read(QueryHistory, DB),
+    HistoryData = [[T*1000, V] || {T, V} <- History1],
+
+    Token = make_ref(),
+    pulsedb:subscribe(QueryRealtime, Token),
+    lager:info("Subscribed websocket ~p to pulse ~s", [get(name), QueryRealtime]),
+     
+    Link = {Name, Token},
+    History2 = [{name,Name},{data, HistoryData}],
+
+    LastUTC = case History1 of
+      [] -> undefined;
+      _ -> {Token, element(1,lists:last(History1))}
+    end,
+     {History2, Link, LastUTC}
+    end
+   || Query <- Queries]),
+  
+  
+  LastUTCs = [L || L <- LastUTCs1, is_tuple(L)],
+  Config = [
+    {title, Title}
+  ],
+  Reply = [{init, true}, {options, Config}, {data, History}],
+  {ok, Reply, State#ws_state{pulses=PulseTokens, last_utc = LastUTCs}}.
+
+
+pulse_history(Title, Queries, #page_state{db=DB}, Opts) ->
+  History = [begin
+     {Name, _, QueryHistory} = make_queries(Query, Opts),
+     {ok,History1,_} = pulsedb:read(QueryHistory, DB),
+     HistoryData = [[T*1000, V] || {T, V} <- History1],
+     [{name,Name},{data, HistoryData}]
+  end || Query <- Queries],
+
+  Config = [{title, Title}],
+  Reply = [{init, true}, {options, Config}, {data, History}],
+  {ok, Reply}.
+
+
+
+
 fill_template(Status, Data) ->
   TemplateName = iolist_to_binary(io_lib:format("templates/embed_~p.html", [Status])),
   Path = filename:join(code:lib_dir(pulsedb,webroot), TemplateName),
@@ -188,17 +251,54 @@ headers(json) -> [{<<"content-type">>,<<"application/json">>}];
 headers(html) -> [{<<"content-type">>, <<"text/html">>}].
 
 
+page_initial_data(Title, Embed, Path, Queries) ->
+  Step = lists:foldl(fun (Q, Max) ->
+                       Q1 = pulsedb_query:parse(Q),
+                       max(Max, pulsedb_query:downsampler_step(Q1))
+                     end, 1, Queries),
+  Protocol = if 
+    Step > 5 -> <<"http">>;
+    true     -> <<"ws">> 
+  end,
+  [{title, Title},
+   {protocol, Protocol}, 
+   {step, jsx:encode(null)},
+   {config, jsx:encode([{embed, Embed},
+                        {container, <<"pulse">>},
+                        {range_selector, <<"range">>},
+                        {ws_path, filename:join([Path, ?WS_PATH])}, 
+                        {http_path, filename:join([Path, ?HTTP_PATH])}])}].
 
-make_queries(Query0) ->
+
+use_step(Value) when is_number(Value) -> 
+  [{step, Value}];
+
+use_step(Value) when is_binary(Value) ->
+  try [{step, binary_to_integer(Value)}]
+  catch _:_ -> []
+  end;
+
+use_step(_) -> [].
+
+
+
+make_queries(Query0, Opts) ->
   {Now,_} = pulsedb:current_second(),
   Q1 = pulsedb_query:parse(Query0),
-  Q2 = pulsedb_query:remove_tag([from, to], Q1),
-  Step = pulsedb_query:downsampler_step(Q2),
+  Step = proplists:get_value(step, Opts, pulsedb_query:downsampler_step(Q1)),
   To   = Now - 4,
   From = To - Step * 60,
   
-  QueryHistory = pulsedb_query:set_range(From, To, Q1),
-  QueryRealtime = Q2,
+  Q2 = 
+  if 
+    Step > 1 -> pulsedb_query:set_step(Step, Q1);
+    true -> Q1
+  end,
+  
+  QueryRealtime = pulsedb_query:remove_tag([from, to], Q2),
+  QueryHistory = pulsedb_query:set_range(From, To, Q2),
+  
+
   
   Name = pulsedb_query:remove_tag([<<"account">>], QueryRealtime),
   
@@ -207,6 +307,9 @@ make_queries(Query0) ->
    pulsedb_query:render(QueryHistory)}.
 
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%
+% RESOLVING AND DECRYPTING
+%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 resolve(Embed, Resolver, Auth) ->
   case pulsedb_embed_cache:read(Embed) of

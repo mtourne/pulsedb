@@ -96,18 +96,55 @@
       s.pointCountToShift = 100;
     });
     
+    chart.stopWebsocket = function(){
+      if (chart.redrawTimer){
+        clearTimeout(chart.redrawTimer);
+        delete chart.redrawTimer;
+      }
+      if (chart.websocket){
+        chart.websocket.close();
+        delete chart.websocket;
+      }
+    }
+    
     window.graphics[ID] = chart;
+    
     return chart;
   };
+  
+  function requestHttpGraphic(ID, Embed, subpath, step) {
+    var uri = "http://" + window.location.host + (subpath || "/history");
+    var request = {url: uri, type: "GET"};
+    if (step)
+      request.headers = {'X-Use-Step': step };
+    
+    $.ajax(request)
+     .done(function(data){
+       var chart = window.graphics[ID];
+       if (chart){
+         chart.stopWebsocket();
+       }
+       if (data.init)
+         renderGraphic(ID, data.options, data.data);
+       });
+  }
 
-  function requestWsGraphic(ID, Embed, ws_subpath) {
+  function requestWsGraphic(ID, Embed, subpath, step) {
+    var chart = window.graphics[ID];
+    if (chart){
+      chart.stopWebsocket();
+    }
+    
     // Generate WS uri based on current host
-    var uri = "ws://" + window.location.host + (ws_subpath || "/graphic");
+    var uri = "ws://" + window.location.host + (subpath || "/graphic");
     var s = new WebSocket(uri);
 
     // Send MFA jyst after open
     s.onopen = function(evt) {
-      s.send(JSON.stringify({embed: Embed}));
+      var params = {embed: Embed};
+      if (step)
+        params.use_step = step;
+      s.send(JSON.stringify(params));
     };
 
     // Accept message
@@ -123,7 +160,7 @@
         // Store websocket for event handlers
         graph.websocket = s;
         // To improve viewing speed we trigger redraw externally, not on every data packet
-        startRedraw(graph, 250);
+        startRedraw(ID, graph, 250);
       } else if (data.set) {
         setGraphicData(ID, data);
       } else {
@@ -131,10 +168,13 @@
       };
     };
 
-    s.onclose = function() {
+    s.onclose = function(evt) {
       var chart = window.graphics[ID];
       if (chart) {
         chart.websocket && delete chart.websocket;
+        if (!evt.wasClean){
+          console.log("lost websocket connection");
+        }
       } else {
         obj('#' + ID).innerText = "Error";
       }
@@ -203,18 +243,80 @@
   };
 
 
-  function startRedraw(graph, interval) {
-    setTimeout(function() {
+  function startRedraw(Id, graph, interval) {
+    var chart = window.graphics[Id];
+    chart.redrawTimer = setTimeout(function() {
       graph.redraw();
-      if (graph.websocket) startRedraw(graph, interval);
+      if (graph.websocket) startRedraw(Id, graph, interval);
     }, interval);
   };
+  
+  function renderRangeSelector(id){
+    var min   =   1;
+    var hour  =  60*min;
+    var day   =  24*hour;
+    var week  =   7*day;
+    var month =  30*day;
+    var year  = 365*day;
 
+    function make_range_btn(label, step, protocol){
+      return $('<button></button>')
+        .addClass('range-selector')
+        .text(label)
+        .data('step', step)
+        .data('protocol', protocol)
+        .on('click', function(){
+          var btn = $(this);
+          $('range-selector').removeClass('active');
+          btn.addClass('active');
+          window.Graphic.request(btn.data('protocol'), btn.data('step'));
+        });
+    }
 
-  window.Graphic = {
+    var container = $("#"+id);
+    container.append(make_range_btn("1y",     year, 'http'));
+    container.append(make_range_btn("6m",  6*month, 'http'));
+    container.append(make_range_btn("3m",  3*month, 'http'));
+    container.append(make_range_btn("1m",  1*month, 'http'));
+    container.append(make_range_btn("1w",     week, 'http'));
+    container.append(make_range_btn("1d",      day, 'http'));
+    container.append(make_range_btn("12h", 12*hour, 'http'));
+    container.append(make_range_btn("1h",     hour, 'http'));
+    container.append(make_range_btn("15m",  15*min, 'ws'));
+    container.append(make_range_btn("5m",    5*min, 'ws'));
+    container.append(make_range_btn("fresh",   min, 'ws'));
+  }
+  
+  
+  var self = {
+    init: init,
     autoHeight: autoHeight,
     render: renderGraphic,
-    ws_request: requestWsGraphic
+    ws_request: requestWsGraphic,
+    request: dispatchRequest,
+    renderRangeSelector: renderRangeSelector
   };
+  
+  function init(config){
+    self.config = config || {};
+    if (self.config.range_selector)
+      renderRangeSelector(self.config.range_selector)
+  };
+  
+  function dispatchRequest(protocol, step){
+    switch(protocol){
+      case 'ws': 
+        requestWsGraphic(self.config.container, self.config.embed, self.config.ws_path, step);
+        break;
+      case 'http': 
+        requestHttpGraphic(self.config.container, self.config.embed, self.config.http_path, step);
+        break;
+    }
+  }
+
+
+  
+
+  window.Graphic = self;
   window.graphics = {};
 })();
