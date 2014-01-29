@@ -45,7 +45,7 @@ init_state(#ws_state{}=State, Opts) ->
                  auth = lists:keyfind(auth, 1, Opts),
                  resolver = lists:keyfind(resolver, 1, Opts)}.
 
-init({tcp, http}, Req, Opts) -> 
+init({tcp, http}, Req, Opts) ->
   {Path, Req2} = cowboy_req:path_info(Req),
   case Path of
     [_,?WS_PATH]       -> {upgrade, protocol, cowboy_websocket};
@@ -61,18 +61,18 @@ terminate(_,_,_) ->
 % PAGE
 %%%%%%
 handle(Req, #page_state{embed=Embed, resolver=Resolver, auth=Auth, mode=subscribe}=State) ->
-  {ok, Reply} = 
+  {ok, Reply} =
   case resolve(Embed,Resolver,Auth) of
-    {ok, Title, Queries} ->
+    {ok, Title, Queries, Zoom} ->
       {Path, Req5} = cowboy_req:path(Req),
-      InitData = page_initial_data(Title, Embed, Path, Queries),
+      InitData = page_initial_data(Title, Embed, Path, Queries, Zoom),
       Page = fill_template(ok, InitData),
       cowboy_req:reply(200, headers(html), Page, Req5);
     {deny, Message} ->
       cowboy_req:reply(403, headers(html), fill_template(denied, [{message, Message}]), Req);
-    {not_found, Message} -> 
+    {not_found, Message} ->
       cowboy_req:reply(404, headers(html), fill_template(not_found, [{message, Message}]), Req);
-    {error, Message} -> 
+    {error, Message} ->
       lager:warning("embed resolving error ~p", [Message]),
       cowboy_req:reply(500, headers(html), fill_template(error, []), Req)
   end,
@@ -83,9 +83,9 @@ handle(Req, #page_state{embed=Embed, resolver=Resolver, auth=Auth, mode=subscrib
 % HISTORY
 %%%%%%%%%
 handle(Req, #page_state{embed=Embed, resolver=Resolver, auth=Auth, mode=history}=State) ->
-  {ok, Reply} = 
+  {ok, Reply} =
   case resolve(Embed,Resolver,Auth) of
-    {ok, Title, Queries} ->
+    {ok, Title, Queries, _Zoom} ->
       {Step, Req1} = cowboy_req:header(<<"x-use-step">>, Req),
       Opts = use_step(Step),
       case pulse_history(Title, Queries, State, Opts) of
@@ -97,9 +97,9 @@ handle(Req, #page_state{embed=Embed, resolver=Resolver, auth=Auth, mode=history}
       end;
     {deny, Message} ->
       cowboy_req:reply(403, headers(json), jsx:encode([{error, Message}]), Req);
-    {not_found, Message} -> 
+    {not_found, Message} ->
       cowboy_req:reply(404, headers(json), jsx:encode([{error, Message}]), Req);
-    {error, Message} -> 
+    {error, Message} ->
       lager:warning("embed resolving error ~p", [Message]),
       cowboy_req:reply(500, headers(json), jsx:encode([{error, Message}]), Req)
   end,
@@ -125,15 +125,15 @@ websocket_init(_Transport, Req, Opts) ->
 
 websocket_handle({pong, _}, Req, #ws_state{} = State) ->
   Ref = erlang:send_after(?WS_TIMEOUT, self(), ping),
-  {ok, Req, State#ws_state{timer = Ref}};  
+  {ok, Req, State#ws_state{timer = Ref}};
 
 
 websocket_handle({text, Text}, Req, #ws_state{resolver=Resolver, auth=Auth}=State) ->
   Json = jsx:decode(Text),
   Embed = proplists:get_value(<<"embed">>, Json),
   Opts = use_step(proplists:get_value(<<"use_step">>, Json)),
-    
-  {ok, Title, Queries} = resolve(Embed, Resolver, Auth),
+
+  {ok, Title, Queries,_Zoom} = resolve(Embed, Resolver, Auth),
   case pulse_subscribe(Title, Queries, State, Opts) of
     {ok, InitBody, NewState} ->
       {reply, {text, jsx:encode(InitBody)}, Req, NewState};
@@ -141,7 +141,7 @@ websocket_handle({text, Text}, Req, #ws_state{resolver=Resolver, auth=Auth}=Stat
       {shutdown, Req, State}
   end;
 
-websocket_handle(Data, Req, State) -> 
+websocket_handle(Data, Req, State) ->
   lager:info("Unknown request ~p", [Data]),
   {ok, Req, State}.
 
@@ -151,7 +151,7 @@ websocket_handle(Data, Req, State) ->
 %%%%%%%%%%%%%%%%%%%%
 websocket_info({pulse, Token, UTC, Value}, Req, #ws_state{pulses=Pulses, last_utc = LastUTCs}=State) ->
   case lists:keyfind(Token, 2, Pulses) of
-    false -> 
+    false ->
       {ok, Req, State};
     {Name,Token} ->
       case lists:keyfind(Token, 1, LastUTCs) of
@@ -192,15 +192,15 @@ pulse_subscribe(Title, Queries, #ws_state{db = DB} = State, Opts) ->
   {History, PulseTokens, LastUTCs1} = lists:unzip3(
   [begin
     {Name, QueryRealtime, QueryHistory} = make_queries(Query, Opts),
-     
-     
+
+
     {ok,History1,_} = pulsedb:read(QueryHistory, DB),
     HistoryData = [[T*1000, V] || {T, V} <- History1],
 
     Token = make_ref(),
     pulsedb:subscribe(QueryRealtime, Token),
     lager:info("Subscribed websocket ~p to pulse ~s", [get(name), QueryRealtime]),
-     
+
     Link = {Name, Token},
     History2 = [{name,Name},{data, HistoryData}],
 
@@ -211,8 +211,8 @@ pulse_subscribe(Title, Queries, #ws_state{db = DB} = State, Opts) ->
      {History2, Link, LastUTC}
     end
    || Query <- Queries]),
-  
-  
+
+
   LastUTCs = [L || L <- LastUTCs1, is_tuple(L)],
   Config = [
     {title, Title}
@@ -251,26 +251,31 @@ headers(json) -> [{<<"content-type">>,<<"application/json">>}];
 headers(html) -> [{<<"content-type">>, <<"text/html">>}].
 
 
-page_initial_data(Title, Embed, Path, Queries) ->
+page_initial_data(Title, Embed, Path, Queries, Zoom) ->
   Step = lists:foldl(fun (Q, Max) ->
                        Q1 = pulsedb_query:parse(Q),
                        max(Max, pulsedb_query:downsampler_step(Q1))
                      end, 1, Queries),
-  Protocol = if 
+  Protocol = if
     Step > 5 -> <<"http">>;
-    true     -> <<"ws">> 
+    true     -> <<"ws">>
   end,
+  RangeSelector = if
+    Zoom == true -> <<"range">>;
+    true -> null
+  end,
+
   [{title, Title},
-   {protocol, Protocol}, 
+   {protocol, Protocol},
    {step, jsx:encode(null)},
    {config, jsx:encode([{embed, Embed},
                         {container, <<"pulse">>},
-                        {range_selector, <<"range">>},
-                        {ws_path, filename:join([Path, ?WS_PATH])}, 
+                        {range_selector, RangeSelector},
+                        {ws_path, filename:join([Path, ?WS_PATH])},
                         {http_path, filename:join([Path, ?HTTP_PATH])}])}].
 
 
-use_step(Value) when is_number(Value) -> 
+use_step(Value) when is_number(Value) ->
   [{step, Value}];
 
 use_step(Value) when is_binary(Value) ->
@@ -288,20 +293,20 @@ make_queries(Query0, Opts) ->
   Step = proplists:get_value(step, Opts, pulsedb_query:downsampler_step(Q1)),
   To   = Now - 4,
   From = To - Step * 60,
-  
-  Q2 = 
-  if 
+
+  Q2 =
+  if
     Step > 1 -> pulsedb_query:set_step(Step, Q1);
     true -> Q1
   end,
-  
+
   QueryRealtime = pulsedb_query:remove_tag([from, to], Q2),
   QueryHistory = pulsedb_query:set_range(From, To, Q2),
-  
 
-  
+
+
   Name = pulsedb_query:remove_tag([<<"account">>], QueryRealtime),
-  
+
   {pulsedb_query:render(Name),
    pulsedb_query:render(QueryRealtime),
    pulsedb_query:render(QueryHistory)}.
@@ -313,15 +318,15 @@ make_queries(Query0, Opts) ->
 
 resolve(Embed, Resolver, Auth) ->
   case pulsedb_embed_cache:read(Embed) of
-    {ok, Value} -> 
+    {ok, Value} ->
       Value;
-    _ -> 
+    _ ->
       Result = try resolve_embed(Embed, Resolver) of
         {ok, Resolved} ->
           try decrypt_embed(Resolved, Auth)
           catch C:E -> {error, {C,E}}
           end;
-        Other -> 
+        Other ->
           Other
       catch
         C:E -> {error, {C,E}}
@@ -358,7 +363,8 @@ decrypt_embed(Embed, {auth,AuthModule,AuthArgs}) ->
   {ok, Json} = AuthModule:decrypt(Embed, AuthArgs),
   Data = jsx:decode(Json),
   {ok, proplists:get_value(<<"title">>, Data),
-       proplists:get_value(<<"queries">>, Data, [])};
+       proplists:get_value(<<"queries">>, Data, []),
+       proplists:get_value(<<"range_selector">>, Data, false)};
 
 decrypt_embed(Embed, false) ->
-  {ok, <<"Graphic">>, [Embed]}.
+  {ok, <<"Graphic">>, [Embed], true}.
