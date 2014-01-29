@@ -47,7 +47,7 @@ append0({Name,UTC,Value,Tags}, DB) ->
 
 cached_metric_name(Name, Tags) ->
   case ets:lookup(pulsedb_metric_names, {Name, Tags}) of
-    [{_, Metric}] -> 
+    [{_, Metric}] ->
       Metric;
     [] ->
       Metric = pulsedb_disk:metric_name(Name, Tags),
@@ -89,7 +89,7 @@ read(Name, Query, DB) when DB == seconds orelse DB == minutes ->
   From = (From_ div Step)*Step,
   To = (To_ div Step)*Step,
 
-  Ticks = lists:seq(From, To-1, Step),
+  Ticks = lists:seq(From, To, Step),
 
   Values1 = lists:flatmap(fun(Metric) ->
     lists:flatmap(fun(I) ->
@@ -119,7 +119,7 @@ merge_seconds_data(Metrics, UTC) when UTC rem 60 == 0 ->
       end
     end, Ticks),
     case Stats of
-      [] -> 
+      [] ->
         [];
       _ ->
         Value = lists:sum(Stats) div length(Stats),
@@ -191,12 +191,12 @@ handle_info(clean, #storage{clean_timer = Old} = S) ->
   erlang:cancel_timer(Old),
   {Minute, _} = pulsedb:current_minute(),
 
-  ets:select_delete(pulsedb_minutes_data, ets:fun2ms(fun(Row) when 
+  ets:select_delete(pulsedb_minutes_data, ets:fun2ms(fun(Row) when
     element(2,element(1,Row)) < Minute - 5*3600 ->
     true
   end)),
 
-  ets:select_delete(pulsedb_seconds_data, ets:fun2ms(fun(Row) when 
+  ets:select_delete(pulsedb_seconds_data, ets:fun2ms(fun(Row) when
     element(2,element(1,Row)) < Minute - 60 ->
     true
   end)),

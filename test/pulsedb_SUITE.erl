@@ -35,9 +35,16 @@ groups() ->
 
 key() -> <<"0123456789abcdef">>.
 
+start_app(App) ->
+  case application:start(App) of
+    ok -> {ok, App};
+    {error,{already_started,App}} -> {ok, App};
+    Other -> Other
+  end.
+
 init_per_suite(Config) ->
   Apps = [pulsedb,crypto,asn1,public_key,ssl,ranch,cowlib,cowboy],
-  [{ok,App} = {application:start(App),App} || App <- Apps],
+  [{ok,App} = start_app(App) || App <- Apps],
 
   R = [{apps,Apps}],
   {ok, Pid} = pulsedb:open(netpush_db, [{url, "file://test/v3/netpush_db"}]),
@@ -53,7 +60,7 @@ init_per_suite(Config) ->
     {dispatch, cowboy_router:compile(Dispatch)}
   ]}]),
 
-  SslTransOpts = 
+  SslTransOpts =
     [{certfile,find("flussonic.crt")},
       {keyfile,find("flussonic.key")},
       {password,"flussonic"},
@@ -73,7 +80,7 @@ find(Cert) ->
 
 
 ciphers() ->
-  [S || S={Key,_,_} <- ssl:cipher_suites(), 
+  [S || S={Key,_,_} <- ssl:cipher_suites(),
         binary:match(atom_to_binary(Key,utf8),<<"ec">>) =/= {0,2}].
 
 
@@ -368,7 +375,7 @@ worker_cleanup(_) ->
 
   Ticks1 = [
     {<<"input">>, 120, 5, [{name, <<"source1">>}]},
-    {<<"output">>, 120, 0, [{name, <<"source1">>}]}  
+    {<<"output">>, 120, 0, [{name, <<"source1">>}]}
   ],
   pulsedb:append(Ticks1, worker_cleanup),
 
@@ -421,10 +428,10 @@ info(_) ->
   Ticks1 = [
     {<<"input">>,  21,  5, [{name, <<"source1">>}]},
     {<<"output">>, 21,  0, [{name, <<"source1">>}]},
-   
+
     {<<"input">>,  22, 10, [{name, <<"source1">>}]},
     {<<"output">>, 22,  2, [{name, <<"source1">>}]},
-   
+
     {<<"input">>,  23,  3, [{name, <<"source1">>}]},
     {<<"output">>, 23,  6, [{name, <<"source1">>}]}
   ],
@@ -434,10 +441,10 @@ info(_) ->
   Ticks2 = [
     {<<"x">>, 21,  5, [{name, <<"source2">>}, {host, <<"t1">>}]},
     {<<"y">>, 21,  0, [{name, <<"source2">>}, {host, <<"t1">>}]},
-   
+
     {<<"x">>, 22, 10, [{name, <<"source2">>}, {host, <<"t2">>}]},
     {<<"y">>, 22,  2, [{name, <<"source2">>}, {host, <<"t2">>}]},
-   
+
     {<<"x">>, 23,  3, [{name, <<"source2">>}, {host, <<"t1">>}]},
     {<<"y">>, 23,  6, [{name, <<"source2">>}, {host, <<"t1">>}]}
   ],
@@ -481,7 +488,7 @@ parse_query(_) ->
   {<<"max">>, {600,<<"avg">>}, <<"cpu">>, []} = pulsedb:parse_query("max:10m-avg:cpu{}"),
   {<<"max">>, undefined, <<"cpu">>, [{<<"host">>,<<"flu1">>}]} = pulsedb:parse_query("max:cpu{host=flu1}"),
   {undefined, undefined, <<"cpu">>, [{<<"host">>,<<"flu1">>}]} = pulsedb:parse_query("cpu{host=flu1}"),
-  {<<"sum">>, undefined, <<"media_output">>, [{<<"media">>,<<"ort">>},{<<"account">>,<<"1970-01-01">>}]} = 
+  {<<"sum">>, undefined, <<"media_output">>, [{<<"media">>,<<"ort">>},{<<"account">>,<<"1970-01-01">>}]} =
     pulsedb:parse_query("sum:media_output{media=ort,account=1970-01-01}"),
   {<<"max">>, undefined, <<"cpu">>, [{<<"host">>,<<"flu1">>},{from,<<"123">>},{to,<<"456">>}]} = pulsedb:parse_query("max:cpu{host=flu1,from=123,to=456}"),
 
@@ -572,7 +579,7 @@ autohealing(_) ->
 
   Ticks1 = [
     {<<"input">>, 120, 5, [{name, <<"source1">>}]},
-    {<<"output">>, 120, 0, [{name, <<"source1">>}]}  
+    {<<"output">>, 120, 0, [{name, <<"source1">>}]}
   ],
   {ok, DB2} = pulsedb:append(Ticks1, DB1),
   pulsedb:close(DB2),
@@ -618,12 +625,12 @@ downsampling(_) ->
 %             {12,20},{13,30},
 %             {14,40},{15,50}],
 %    [{10,10},{12,50},{14,90}] = pulsedb_disk:downsample({2, <<"sum">>}, Ticks1),
-  
+
 %   Ticks2 = [{1,10},
 %             {3,30},
 %             {5,50}],
 %    [{0,10},{2,30},{4,50}] = pulsedb_disk:downsample({2, <<"sum">>}, Ticks2),
-  
+
 %   Ticks5 = [{9, 0},
 %             {13,20},
 %             {15,50}],
@@ -648,7 +655,7 @@ replicator(_) ->
   receive
     {pulse, _, _, _, _, _} -> ok
   after
-    500 -> 
+    500 ->
       ct:pal("msg: ~p ~p", [self(), process_info(self(),messages)]),
       error(replication_not_working)
   end,
@@ -667,8 +674,8 @@ required_dates(_) ->
     {<<"input">>, 1390292577,  3, [{name, <<"source1">>}]},
     {<<"input">>, 1390292578,  4, [{name, <<"source1">>}]}],
   pulsedb:append(TicksToday, required_dates_db),
-  
-  
+
+
   {ok, [{1390224618,  1},
         {1390224619,  2},
         {1390292577,  3},
@@ -679,19 +686,19 @@ required_dates(_) ->
 query_mutation(_) ->
   Q1s = <<"sum:10s-avg:ds{from=0,to=1800}">>,
   Q1 = pulsedb_query:parse(Q1s),
-  
-  
+
+
   Q1s = pulsedb_query:render(Q1),
-  
+
   Q2 = pulsedb_query:add_tag({account, "test@email.com"}, Q1),
   <<"sum:10s-avg:ds{from=0,to=1800,account=test@email.com}">> = pulsedb_query:render(Q2),
-  
+
   Q3 = pulsedb_query:remove_tag(from, Q1),
   <<"sum:10s-avg:ds{to=1800}">> = pulsedb_query:render(Q3),
-  
+
   Q4 = pulsedb_query:remove_tag([from, to], Q1),
   <<"sum:10s-avg:ds">> = pulsedb_query:render(Q4),
-  
+
   Q5_ = pulsedb_query:remove_tag([from, to], Q1),
   Q5 = pulsedb_query:add_tag([{account, "test@email.com"}, {from, 123}], Q5_),
   <<"sum:10s-avg:ds{account=test@email.com,from=123}">> = pulsedb_query:render(Q5).

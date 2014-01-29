@@ -151,7 +151,7 @@ append({_Name, UTC, _Value, _Tags} = Tick, #disk_db{config_fd = undefined, date 
 append({_, UTC, _, _} = Tick, #disk_db{mode = append, date = Date, path = Path} = DB) ->
   UTCDate = pulsedb_time:date_path(UTC),
   {ok, DB1} = if
-    Date == undefined orelse UTCDate == Date -> 
+    Date == undefined orelse UTCDate == Date ->
       try append0(Tick, DB)
       catch
         Class:Error ->
@@ -185,7 +185,7 @@ find_or_open_source(Name, Tags, #disk_db{sources = S} = DB) ->
 
 source_name(Name, Tags, #disk_db{cached_source_names = SourceNames} = DB) ->
   case lists:keyfind({Name,Tags}, 1, SourceNames) of
-    {_, SourceName} -> 
+    {_, SourceName} ->
       {SourceName, DB};
     false ->
       SourceName = metric_name(Name, Tags),
@@ -277,9 +277,9 @@ open_hour_if_required(SourceId, UTC, #disk_db{config_fd = ConfigFd, data_fd = Da
     _ ->
       {ok, DataPos} = file:position(DataFd, eof),
       BlockOffset = case DataPos rem 8192 of
-        0 -> 
+        0 ->
           DataPos;
-        _ -> 
+        _ ->
           lager:error("Error with data file for ~p / ~p. Last offset is ~p", [DB#disk_db.path, DB#disk_db.date, DataPos]),
           ((DataPos div 8192) + 1)*8192
       end,
@@ -376,7 +376,7 @@ load_ticks([Date|Dates], Name, Query, #disk_db{} = DB) ->
           {ok, Ticks1++Ticks2, DB3};
         {error, _} = Error ->
           Error
-      end;        
+      end;
     {error, _} = Error ->
       Error
   end.
@@ -462,7 +462,7 @@ aggregate(_Agg, [], undefined, []) -> [];
 aggregate(Agg, [], UTC, Acc) -> [{UTC,Agg(Acc)}];
 aggregate(Agg, [{UTC,V1}|Ticks], undefined, []) -> aggregate(Agg, Ticks, UTC, [V1]);
 aggregate(Agg, [{UTC,V1}|Ticks], UTC, Acc) -> aggregate(Agg, Ticks, UTC, [V1|Acc]);
-aggregate(Agg, [{UTC2,V1}|Ticks], UTC1, Acc) -> 
+aggregate(Agg, [{UTC2,V1}|Ticks], UTC1, Acc) ->
   [{UTC1,Agg(Acc)}|aggregate(Agg, Ticks, UTC2, [V1])].
 
 
@@ -506,7 +506,7 @@ filter_ticks([], _, _) ->
 filter_ticks([{UTC,_}|Ticks], From, To) when From - UTC > 0 ->
   filter_ticks(Ticks, From, To);
 
-filter_ticks([{UTC,_}|_Ticks], _From, To) when UTC - To >= 0 ->
+filter_ticks([{UTC,_}|_Ticks], _From, To) when UTC - To > 0 ->
   [];
 
 filter_ticks([Tick|Ticks], From, To) ->
@@ -519,7 +519,7 @@ filter_ticks([Tick|Ticks], From, To) ->
 close(#disk_db{config_fd = C, data_fd = D} = DB) ->
   file:close(C),
   file:close(D),
-  {ok, DB#disk_db{config_fd = undefined, data_fd = undefined, 
+  {ok, DB#disk_db{config_fd = undefined, data_fd = undefined,
     date = undefined, sources = undefined}}.
 
 
