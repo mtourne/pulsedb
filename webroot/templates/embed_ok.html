@@ -3,11 +3,13 @@
   <head>
     <script src='/js/jquery.js'></script>
     <script src='/js/highcharts.js'></script>
+    <script src='/js/rangeSelector.js'></script>
     <script src='/js/graphic.js'></script>
     <script>
       function connect(){
+        var step = Number(location.hash.slice(1)) || null;
         window.Graphic.init({{config}});
-        window.Graphic.request('{{protocol}}', '{{step}}');
+        window.Graphic.request(step);
       }
       window.onload = connect;
     </script>

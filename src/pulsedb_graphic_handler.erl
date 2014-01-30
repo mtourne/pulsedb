@@ -251,23 +251,13 @@ headers(json) -> [{<<"content-type">>,<<"application/json">>}];
 headers(html) -> [{<<"content-type">>, <<"text/html">>}].
 
 
-page_initial_data(Title, Embed, Path, Queries, Zoom) ->
-  Step = lists:foldl(fun (Q, Max) ->
-                       Q1 = pulsedb_query:parse(Q),
-                       max(Max, pulsedb_query:downsampler_step(Q1))
-                     end, 1, Queries),
-  Protocol = if
-    Step > 5 -> <<"http">>;
-    true     -> <<"ws">>
-  end,
+page_initial_data(Title, Embed, Path, _Queries, Zoom) ->
   RangeSelector = if
     Zoom == true -> <<"range">>;
     true -> null
   end,
 
   [{title, Title},
-   {protocol, Protocol},
-   {step, jsx:encode(null)},
    {config, jsx:encode([{embed, Embed},
                         {container, <<"pulse">>},
                         {range_selector, RangeSelector},
@@ -303,10 +293,7 @@ make_queries(Query0, Opts) ->
   QueryRealtime = pulsedb_query:remove_tag([from, to], Q2),
   QueryHistory = pulsedb_query:set_range(From, To, Q2),
 
-
-
   Name = pulsedb_query:remove_tag([<<"account">>], QueryRealtime),
-
   {pulsedb_query:render(Name),
    pulsedb_query:render(QueryRealtime),
    pulsedb_query:render(QueryHistory)}.
