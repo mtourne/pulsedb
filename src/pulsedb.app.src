@@ -1,6 +1,6 @@
 {application, pulsedb, [
   {description, "Statistics collect database"},
-  {vsn, "0.2"},
+  {vsn, "0.3"},
   {registered, []},
   {applications, [kernel, stdlib]},
   {mod, {pulsedb_app, []}},
