@@ -16,16 +16,12 @@
     return point.y.toFixed(0);
   };
 
-  function renderGraphic(ID, Options, Data) {
-    // Destroy existing chart with same ID if any
-    var chart = window.graphics[ID];
-    if (chart) chart.destroy();
-
-    // Reset zero options to empty object (for cases when we get null, undefined, [] or so)
+  function graphicArgs(ID, Options){
+        // Reset zero options to empty object (for cases when we get null, undefined, [] or so)
     if (! Options) Options = {};
 
     // Display options
-    var chartOptions = {renderTo: ID, 
+    var chartOptions = {renderTo: ID,
                         animation: false,
                         type: 'spline'};
 
@@ -38,6 +34,62 @@
       borderWidth:1,
       backgroundColor:"#bebebe"
     };
+
+
+    // ordinal = false makes point interval be proportional to actual time difference
+    var xAxis = {ordinal: Options.ordinal,
+                 type: 'datetime'};
+
+    var yAxis = { min: 0 };
+
+   // if (Options.lines) yAxis.plotLines = genPlotLines(Options.lines);
+
+    // Make floating title if needed
+    var title = undefined;
+    if (Options.title)
+      title = {text: Options.title,
+               floating: true};
+
+    var legend = {enabled: true,
+                  align: "center",
+                  floating: true,
+                  y: -20};
+
+    var plotOptions = {series: {marker: {enabled: false},
+                                lineWidth: 2,
+                                states: {hover: {lineWidth: 2}}}};
+
+    var args = {
+      chart: chartOptions,
+      scrollbar: {enabled: false},
+      xAxis: xAxis,
+      yAxis: yAxis,
+      title: title,
+      legend: legend,
+      credits: {enabled: false},
+      tooltip: {formatter: tooltipFormatter},
+      plotOptions: plotOptions
+    };
+    return args;
+  };
+
+  function emptyGraphicIfNeed(ID){
+    var chart = window.graphics[ID];
+    if (chart)
+      return;
+    var args = graphicArgs(ID, {});
+    chart = new Highcharts.Chart(args);
+    chart.stopWebsocket = function(){};
+    window.graphics[ID] = chart;
+  };
+
+  function renderGraphic(ID, Options, Data) {
+    // Destroy existing chart with same ID if any
+    var chart = window.graphics[ID];
+    if (chart) {
+      chart.hideLoading();
+      chart.destroy();
+    }
 
     // auto-add marks series
     var haveMarks = false;
@@ -54,48 +106,17 @@
       };
     });
 
-    // ordinal = false makes point interval be proportional to actual time difference
-    var xAxis = {ordinal: Options.ordinal, 
-                 type: 'datetime'};
 
-    var yAxis = { min: 0 };
+    var args = graphicArgs(ID, Options);
 
-   // if (Options.lines) yAxis.plotLines = genPlotLines(Options.lines);
-
-    // Make floating title if needed
-    var title = undefined;
-    if (Options.title) 
-      title = {text: Options.title, 
-               floating: true};
-
-    var legend = {enabled: true,
-                  align: "center",
-                  floating: true,
-                  y: -20};
-    
-    var plotOptions = {series: {marker: {enabled: false},
-                                lineWidth: 2,
-                                states: {hover: {lineWidth: 2}}}};
-
-    var args = {
-      chart: chartOptions,
-      scrollbar: {enabled: false},
-      xAxis: xAxis,
-      yAxis: yAxis,
-      title: title,
-      legend: legend,
-      credits: {enabled: false},
-      tooltip: {formatter: tooltipFormatter},
-      series: Data,
-      plotOptions: plotOptions
-    };
+    args.series = Data;
 
     chart = new Highcharts.Chart(args);
-    
+
     chart.series.forEach(function(s){
       s.pointCountToShift = 100;
     });
-    
+
     chart.stopWebsocket = function(){
       if (chart.redrawTimer){
         clearTimeout(chart.redrawTimer);
@@ -105,26 +126,32 @@
         chart.websocket.close();
         delete chart.websocket;
       }
-    }
-    
+    };
+
+
     window.graphics[ID] = chart;
-    
+
     return chart;
   };
-  
+
   function requestHttpGraphic(ID, Embed, subpath, step) {
+    var chart = window.graphics[ID];
+    if (chart){
+      chart.stopWebsocket();
+      window.rangeSelector.disable(5000);
+      chart.showLoading();
+    }
+
+
     var uri = "http://" + window.location.host + (subpath || "/history");
     var request = {url: uri, type: "GET"};
     if (step)
       request.headers = {'X-Use-Step': step };
-    
+
     $.ajax(request)
      .done(function(data){
-       var chart = window.graphics[ID];
-       if (chart){
-         chart.stopWebsocket();
-       }
        if (data.init)
+         window.rangeSelector.enable();
          renderGraphic(ID, data.options, data.data);
        });
   }
@@ -133,8 +160,10 @@
     var chart = window.graphics[ID];
     if (chart){
       chart.stopWebsocket();
+      window.rangeSelector.disable(5000);
+      chart.showLoading();
     }
-    
+
     // Generate WS uri based on current host
     var uri = "ws://" + window.location.host + (subpath || "/graphic");
     var s = new WebSocket(uri);
@@ -155,6 +184,7 @@
         return;
       }
       if (data.init) {
+        window.rangeSelector.enable();
         // Initial render
         var graph = renderGraphic(ID, data.options, data.data);
         // Store websocket for event handlers
@@ -250,72 +280,34 @@
       if (graph.websocket) startRedraw(Id, graph, interval);
     }, interval);
   };
-  
-  function renderRangeSelector(id){
-    var min   =   1;
-    var hour  =  60*min;
-    var day   =  24*hour;
-    var week  =   7*day;
-    var month =  30*day;
-    var year  = 365*day;
 
-    function make_range_btn(label, step, protocol){
-      return $('<button></button>')
-        .addClass('range-selector')
-        .text(label)
-        .data('step', step)
-        .data('protocol', protocol)
-        .on('click', function(){
-          var btn = $(this);
-          $('range-selector').removeClass('active');
-          btn.addClass('active');
-          window.Graphic.request(btn.data('protocol'), btn.data('step'));
-        });
+
+
+  function init(config){
+    self.config = config || {};
+    self.config.realtime_threshold |= 15;
+    emptyGraphicIfNeed(self.config.container);
+    window.rangeSelector = new RangeSelector(self.config.range_selector);
+  };
+
+  function dispatchRequest(step){
+    if (step <= self.config.realtime_threshold){
+      requestWsGraphic(self.config.container, self.config.embed, self.config.ws_path, step);
+    }else{
+      requestHttpGraphic(self.config.container, self.config.embed, self.config.http_path, step);
     }
-
-    var container = $("#"+id);
-    container.append(make_range_btn("1y",     year, 'http'));
-    container.append(make_range_btn("6m",  6*month, 'http'));
-    container.append(make_range_btn("3m",  3*month, 'http'));
-    container.append(make_range_btn("1m",  1*month, 'http'));
-    container.append(make_range_btn("1w",     week, 'http'));
-    container.append(make_range_btn("1d",      day, 'http'));
-    container.append(make_range_btn("12h", 12*hour, 'http'));
-    container.append(make_range_btn("1h",     hour, 'http'));
-    container.append(make_range_btn("15m",  15*min, 'ws'));
-    container.append(make_range_btn("5m",    5*min, 'ws'));
-    container.append(make_range_btn("fresh",   min, 'ws'));
   }
-  
-  
+
+
+
   var self = {
     init: init,
     autoHeight: autoHeight,
     render: renderGraphic,
     ws_request: requestWsGraphic,
-    request: dispatchRequest,
-    renderRangeSelector: renderRangeSelector
+    request: dispatchRequest
   };
-  
-  function init(config){
-    self.config = config || {};
-    if (self.config.range_selector)
-      renderRangeSelector(self.config.range_selector)
-  };
-  
-  function dispatchRequest(protocol, step){
-    switch(protocol){
-      case 'ws': 
-        requestWsGraphic(self.config.container, self.config.embed, self.config.ws_path, step);
-        break;
-      case 'http': 
-        requestHttpGraphic(self.config.container, self.config.embed, self.config.http_path, step);
-        break;
-    }
-  }
 
-
-  
 
   window.Graphic = self;
   window.graphics = {};
