@@ -35,7 +35,7 @@ var RangeSelector = function(id, ranges){
       var btn = $(this);
       self.buttons().removeClass('active');
       btn.addClass('active');
-      window.history.pushState("", "", location.pathname+"#"+step);
+      window.history.replaceState("", "", location.pathname+"#"+step);
       window.Graphic.request(btn.data('step'));
     });
   };
