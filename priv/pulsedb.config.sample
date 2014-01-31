@@ -13,7 +13,8 @@
 %{embed_resolver, "http://localhost:8090/embed/api/resolve"}.
 
 
-
+% Credentials, required to visit admin pages
+%{superuser, {"admin", "pass"}}
 
 
 

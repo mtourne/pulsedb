@@ -12,7 +12,7 @@ workers() ->
       {pulsedb_graph,I} -> {graphic,I};
       _ -> {undefined,undefined}
     end,
-    {Pid,Type,IP} 
+    {Pid,Type,IP}
   end || {_,Pid,_,_} <-  supervisor:which_children(ranch_server:get_connections_sup(pulsedb_service))].
 
 
@@ -82,18 +82,25 @@ start() ->
     {ok, Key} ->
       NetAuth = [{key,iolist_to_binary(Key)}],
       [{auth,pulsedb_netpush_auth,NetAuth}];
-    _ -> 
+    _ ->
       []
   end,
-  
+
   EmbedResolver = case application:get_env(pulsedb, embed_resolver) of
     {ok, Url} ->
       [{resolver, url, Url}];
-    _ -> 
+    _ ->
       []
   end,
-  
-  ResolverSpec = {pulsedb_embed_resolver, {pulsedb_embed_resolver, start_link, [Auth ++ EmbedResolver]}, 
+
+  Superuser = case application:get_env(pulsedb, superuser) of
+    {ok, {Login, Pass}} ->
+      [{superuser, Login, Pass}];
+    _ ->
+      []
+  end,
+
+  ResolverSpec = {pulsedb_embed_resolver, {pulsedb_embed_resolver, start_link, [Auth ++ EmbedResolver]},
                                           permanent, 100, worker, []},
   supervisor:start_child(pulsedb_sup, ResolverSpec),
 
@@ -105,9 +112,8 @@ start() ->
   Dispatch = [{'_', [
     {"/api/v1/status", pulsedb_netpush_handler, [status]},
     {"/api/v1/pulse_push", pulsedb_netpush_handler, [{db,simple_db}] ++ Auth},
-    {"/embed/[...]", pulsedb_graphic_handler, [{db,simple_db}] 
-                                              ++ EmbedResolver
-                                              ++ Auth},
+    {"/embed/[...]", pulsedb_graphic_handler, [{db,simple_db}] ++ EmbedResolver ++ Auth},
+    {"/pages/points/[...]", pulsedb_points_handler, [] ++ Superuser},
     {"/js/[...]", cowboy_static, StaticDir}
   ]}],
 
