@@ -9,6 +9,11 @@
 -export([handle_info/2, terminate/2]).
 
 
+init(_, Req, [status]) ->
+  {ok, Req2} = cowboy_req:reply(200, [], <<"Running\n">>, Req),
+  {shutdown, Req2, undefined};
+
+
 
 init({_,http}, Req, _Args) ->
   {Upgrade, Req1} = cowboy_req:header(<<"upgrade">>, Req),

@@ -103,6 +103,7 @@ start() ->
   end,
 
   Dispatch = [{'_', [
+    {"/api/v1/status", pulsedb_netpush_handler, [status]},
     {"/api/v1/pulse_push", pulsedb_netpush_handler, [{db,simple_db}] ++ Auth},
     {"/embed/[...]", pulsedb_graphic_handler, [{db,simple_db}] 
                                               ++ EmbedResolver
@@ -122,4 +123,11 @@ start() ->
       ]}]);
     _ ->
       undefined
-  end.
+  end,
+  case os:getenv("PIDFILE") of
+    false -> ok;
+    PidFile ->
+      filelib:ensure_dir(PidFile),
+      file:write_file(PidFile, os:getpid())
+  end,
+  ok.
