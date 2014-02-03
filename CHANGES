@@ -1,0 +1,18 @@
+pulsedb (0.4)
+
+  * write delay in pulsedb disk
+  * admin page for tracking active pushers
+  * shard database by account tag
+
+pulsedb (0.3)
+
+  * added graphic scaling
+  * external resolver for embeds
+
+pulsedb (0.2)
+
+  * Initial release
+  * Can accept pulses from network
+  * Can accept pulses from local calls
+  * Can show simple graphics via webpage
+
