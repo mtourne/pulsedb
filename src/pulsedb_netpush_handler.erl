@@ -90,16 +90,24 @@ upgrade0(Req, Env, _Mod, Args) ->
   end,
 
 
-  TrackerId = case proplists:get_value(<<"point">>, UserTags) of
-    undefined -> {unknown, make_ref()};
-    Value -> Value
-  end,
 
-  gen_tracker:add_existing_child(pulsedb_pushers, {TrackerId, self(), worker, []}),
-  gen_tracker:setattr(pulsedb_pushers, TrackerId,
-                      [{account,proplists:get_value(<<"account">>, UserTags)},
-                       {ip, Ip},
-                       {user_tags, UserTags}]),
+  Tracker = proplists:get_value(tracker, Args),
+  Account = proplists:get_value(<<"account">>, UserTags),
+  ProvidedDb = proplists:get_value(db, Args),
+  DBPath = proplists:get_value(path,Args),
+
+  {ok, DB} = if
+    is_atom(Tracker) andalso size(Account) > 0 andalso DBPath =/= undefined ->
+      Spec = {Account, {pulsedb_worker, start_link, [undefined, [{url,iolist_to_binary(["file://", DBPath])}]]}, temporary, 200, worker, []},
+      gen_tracker:find_or_open(Tracker, Spec);
+    ProvidedDb =/= undefined ->
+      {ok, ProvidedDb};
+    DBPath =/= undefined ->
+      pulsedb:open(DBPath);
+    true ->
+      {ok, _} = cowboy_req:reply(501, [], "Database not configured\n", Req6),
+      exit(normal)
+  end,
 
   {ok, Req8} = cowboy_req:upgrade_reply(101, [{<<"upgrade">>,<<"application/timeseries-text">>}], Req6),
   receive
@@ -108,21 +116,24 @@ upgrade0(Req, Env, _Mod, Args) ->
     1000 -> error(timeout_open)
   end,
 
-  [Socket,Transport] = cowboy_req:get([socket,transport], Req8),
-  Transport:setopts(Socket, [{active,once},{packet,line}]),
+  TrackerId = case proplists:get_value(<<"point">>, UserTags) of
+    undefined -> {unknown, make_ref()};
+    Value -> Value
+  end,
 
+  gen_tracker:add_existing_child(pulsedb_pushers, {TrackerId, self(), worker, []}),
+  gen_tracker:setattr(pulsedb_pushers, TrackerId,
+                      [{account,Account},
+                       {ip, Ip},
+                       {user_tags, UserTags}]),
   put('$ancestors', [self()]),
   put(name, {pulsedb_netpush, Ip}),
 
-  {ok, DB} = case proplists:get_value(db, Args) of
-    undefined ->
-      case proplists:get_value(path,Args) of
-        undefined -> {ok, undefined};
-        DBPath -> pulsedb:open(DBPath)
-      end;
-    DB_ ->
-      {ok, DB_}
-  end,
+
+  [Socket,Transport] = cowboy_req:get([socket,transport], Req8),
+  Transport:setopts(Socket, [{active,once},{packet,line}]),
+
+
 
   lager:info("Accepted connection from ~s with info: ~p", [Ip, UserTags]),
   State = #netpush{ip = Ip, transport = Transport, socket = Socket,

@@ -18,7 +18,7 @@ append(Ticks, DB) when is_atom(DB) ->
     undefined -> undefined;
     Pid -> 
       case append(Ticks, Pid) of 
-        ok -> {ok, DB};
+        {ok, _} -> {ok, DB};
         {error, E} -> {error, E}
       end
   end.
@@ -30,7 +30,11 @@ sync(DB) when is_pid(DB) ->
 sync(DB) when is_atom(DB) ->
   case whereis(DB) of
     undefined -> ok;
-    Pid -> ok = sync(Pid), {ok, DB}
+    Pid -> 
+      case sync(Pid) of
+        {ok, _} -> {ok, DB};
+        {error, E} -> {error, E}
+      end
   end.
 
 
@@ -73,7 +77,10 @@ stop(DB) ->
 }).
 
 init([Name, Options]) ->
-  erlang:register(Name, self()),
+  case Name of
+    undefined -> ok;
+    _ -> erlang:register(Name, self())
+  end,
   case pulsedb:open(undefined, Options) of
     {ok, DB} ->
       CleanTimeout = proplists:get_value(delete_older, Options),
@@ -93,7 +100,7 @@ init([Name, Options]) ->
 handle_call({append, Ticks}, _, #worker{db = DB} = W) ->
   case pulsedb:append(Ticks, DB) of
     {ok, DB1} ->
-      {reply, ok, W#worker{db = DB1}};
+      {reply, {ok, self()}, W#worker{db = DB1}};
     {error, E} ->
       {stop, normal, {error, E}, W}
   end;
@@ -107,7 +114,7 @@ handle_call(info, _, #worker{db = DB} = W) ->
 
 handle_call(sync, _, #worker{db = DB} = W) ->
   {ok, DB1} = pulsedb:sync(DB),
-  {reply, ok, W#worker{db = DB1}};
+  {reply, {ok, self()}, W#worker{db = DB1}};
 
 handle_call(stop, _, #worker{} = W) ->
   {stop, normal, ok, W}.

@@ -25,6 +25,7 @@ init([pulsedb_collectors]) ->
 init([]) ->
   Supervisors = [
     {pulsedb_memory,     {pulsedb_memory, start_link, []}, permanent, 100, worker, []},
+    {pulsedb_netpushers, {gen_tracker, start_link, [pulsedb_netpushers]}, permanent, infinity, supervisor, []},
     {pulsedb_collectors, {supervisor, start_link, [{local,pulsedb_collectors}, ?MODULE, [pulsedb_collectors]]}, permanent, infinity, supervisor, []},
     {pulsedb_realtime, {pulsedb_realtime, start_link, []}, permanent, 100, worker, []},
     {pulsedb_embed_cache, {pulsedb_embed_cache, start_link, []}, permanent, 100, worker, []},
