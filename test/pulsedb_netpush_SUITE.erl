@@ -63,6 +63,9 @@ append(_) ->
   pulsedb:sync(netpush_client),
 
   {ok, _} = gen_tracker:find(pulsedb_netpushers, <<"acc01">>),
+
+  {ok, _} = file:read_file_info("temp_push/acc01/1970/01/01/data_v4"),
+  {error, enoent} = file:read_file_info("temp_push/1970/01/01/data_v4"),
   ok.
 
 
