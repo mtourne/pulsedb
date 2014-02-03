@@ -24,9 +24,10 @@ start() ->
 
   case file:path_consult(["priv", "/etc/pulsedb"], "pulsedb.config") of
     {ok, Env, ConfigPath} ->
-      error_logger:info_msg("Reading config from ~s", [ConfigPath]),
+      error_logger:info_msg("Reading config from ~s\n", [ConfigPath]),
       [application:set_env(pulsedb, K, V) || {K,V} <- Env];
-    _ ->
+    {error, ConfigError} ->
+      error_logger:error_msg("Failed to read config: ~p\n", [ConfigError]),
       ok
   end,
 
@@ -55,7 +56,7 @@ start() ->
   ],
   FileFormat = [date, " "] ++ ConsoleFormat,
   application:set_env(lager,handlers,[
-    {lager_console_backend,[info,{lager_default_formatter, ConsoleFormat}]},
+    {lager_console_backend,[debug,{lager_default_formatter, ConsoleFormat}]},
     {lager_file_backend, [{file,LogDir++"/pulsedb.log"},{level,info},{size,2097152},{date,"$D04"}, {count,40},
                         {formatter,lager_default_formatter},{formatter_config,FileFormat}]}
   ]),
@@ -69,11 +70,17 @@ start() ->
 
   ok = lager:start(),
 
+  lager:info("Starting whole pulsedb server"),
+
   case application:get_env(pulsedb, path) of
     {ok, Path} ->
-      lager:info("Open single pulsedb storage at ~s", [Path]),
       Spec = {simple_db, {pulsedb, open, [simple_db, [{url,"file://"++Path}]]}, permanent, 100, worker, []},
-      supervisor:start_child(pulsedb_sup, Spec);
+      case supervisor:start_child(pulsedb_sup, Spec) of
+        {ok, _} ->
+          lager:info("Opened single pulsedb storage at ~s", [Path]);
+        {error, DBError} ->
+          lager:error("Failed to open single pulsedb storage at ~s because: ~p", [Path, DBError])
+      end;
     _ ->
       ok
   end,

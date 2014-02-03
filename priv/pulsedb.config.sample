@@ -14,7 +14,7 @@
 
 
 % Credentials, required to visit admin pages
-%{superuser, {"admin", "pass"}}
+%{superuser, {"admin", "pass"}}.
 
 
 
