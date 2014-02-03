@@ -30,7 +30,7 @@ read0(ShardName, Name, Query, #sharded_db{partitions=Shards0, path=DBPath} = Sta
   case find_or_open(ShardName, Shards0, DBPath) of
     {ok, Shard0} -> 
       case pulsedb:read(Name, Query, Shard0) of
-        {ok, Ticks, Shard1} -> {ok, Ticks, update_shards(ShardName, Shard1, State)};
+        {ok, Ticks, Shard1} -> {ok, Ticks, close(update_shards(ShardName, Shard1, State))};
         {error, Error}   -> Error
       end;
     {error, Error} -> 
@@ -50,7 +50,6 @@ find_or_open(ShardName, Shards, Path) when size(ShardName) > 0 ->
 
 open_partition(ShardName, DBPath) ->
   ShardPath = iolist_to_binary(["file://", DBPath, "/", ShardName]),
-  lager:info("OPEN SHARD ~p", [ShardPath]),
   pulsedb:open(ShardPath).
   
 
@@ -61,9 +60,9 @@ update_shards(ShardName, Shard, #sharded_db{partitions=Shards0} = State) ->
 
 
 
-close(#sharded_db{partitions=Shards0}) ->
-  [pulsedb:close(Shard) || Shard <- Shards0],
-  ok.
+close(#sharded_db{partitions=Shards0} = DB) ->
+  [pulsedb:close(D) || {_, D} <- Shards0],
+  DB#sharded_db{partitions = []}.
 
 
 append(_, #sharded_db{}) ->

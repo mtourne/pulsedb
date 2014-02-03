@@ -72,19 +72,6 @@ start() ->
 
   lager:info("Starting whole pulsedb server"),
 
-  case application:get_env(pulsedb, path) of
-    {ok, Path} ->
-      Spec = {simple_db, {pulsedb, open, [simple_db, [{url,"sharded://"++Path}]]}, permanent, 100, worker, []},
-      case supervisor:start_child(pulsedb_sup, Spec) of
-        {ok, _} ->
-          lager:info("Opened single pulsedb storage at ~s", [Path]);
-        {error, DBError} ->
-          lager:error("Failed to open single pulsedb storage at ~s because: ~p", [Path, DBError])
-      end;
-    _ ->
-      ok
-  end,
-
   Auth = case application:get_env(pulsedb, key) of
     {ok, Key} ->
       NetAuth = [{key,iolist_to_binary(Key)}],
@@ -117,10 +104,20 @@ start() ->
     {ok, "0.8."++_} -> [{directory, "webroot/js"}]
   end,
 
+
+  ReadDB = case application:get_env(pulsedb, path) of
+    {ok, Path} ->
+      {ok, Shard} = pulsedb:open(undefined, [{url,"sharded://"++Path}]),
+      [{db, Shard}];
+    _ ->
+      []
+  end,
+
+
   Dispatch = [{'_', [
     {"/api/v1/status", pulsedb_netpush_handler, [status]},
     {"/api/v1/pulse_push", pulsedb_netpush_handler, [{tracker, pulsedb_shards}] ++ Auth ++ DBPath},
-    {"/embed/[...]", pulsedb_graphic_handler, [{db,simple_db}] ++ EmbedResolver ++ Auth},
+    {"/embed/[...]", pulsedb_graphic_handler, ReadDB ++ EmbedResolver ++ Auth},
     {"/pages/points/[...]", pulsedb_points_handler, [] ++ Superuser},
     {"/js/[...]", cowboy_static, StaticDir}
   ]}],

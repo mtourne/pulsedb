@@ -86,7 +86,7 @@ handle_info(tick, #subscriptions{clients=Clients}=State) ->
   end, Clients),
   T2 = os:timestamp(),
   case timer:now_diff(T2,T1) of
-    T when T > 100 -> lager:debug("tick took ~B us", [timer:now_diff(T2,T1)]);
+    T when T > 1000 -> lager:debug("tick took ~B us", [timer:now_diff(T2,T1)]);
     _ -> ok
   end,
   {_,Delay} = pulsedb:current_second(),
