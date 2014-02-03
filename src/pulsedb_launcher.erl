@@ -100,14 +100,6 @@ start() ->
       []
   end,
 
-  ResolverSpec = {pulsedb_embed_resolver, {pulsedb_embed_resolver, start_link, [Auth ++ EmbedResolver]},
-                                          permanent, 100, worker, []},
-  case supervisor:start_child(pulsedb_sup, ResolverSpec) of
-    {ok, _} -> ok;
-    {error, ResolverError} ->
-      lager:error("Failed to start embed resolver: ~p", [ResolverError])
-  end,
-
   StaticDir = case application:get_key(cowboy,vsn) of
     {ok, "0.9."++_} -> {dir, "webroot/js", [{mimetypes, cow_mimetypes, web}]};
     {ok, "0.8."++_} -> [{directory, "webroot/js"}]
