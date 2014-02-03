@@ -199,6 +199,7 @@ pulse_subscribe(Title, Queries, #ws_state{db = DB} = State, Opts) ->
 
     Token = make_ref(),
     pulsedb:subscribe(QueryRealtime, Token),
+    erlang:garbage_collect(self()),
     lager:info("Subscribed websocket ~p to pulse ~s", [get(name), QueryRealtime]),
 
     Link = {Name, Token},
@@ -231,6 +232,7 @@ pulse_history(Title, Queries, #page_state{db=DB}, Opts) ->
 
   Config = [{title, Title}],
   Reply = [{init, true}, {options, Config}, {data, History}],
+  erlang:garbage_collect(self()),
   {ok, Reply}.
 
 
