@@ -7,9 +7,9 @@
     <script src='/js/graphic.js'></script>
     <script>
       function connect(){
-        var step = Number(location.hash.slice(1)) || null;
         window.Graphic.init({{config}});
-        window.Graphic.request(step);
+        var urlData = window.rangeSelector.getUrlData();
+        window.Graphic.request(urlData.step, urlData.proto);
       }
       window.onload = connect;
     </script>

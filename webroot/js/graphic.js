@@ -17,7 +17,7 @@
   };
 
   function graphicArgs(ID, Options){
-        // Reset zero options to empty object (for cases when we get null, undefined, [] or so)
+    // Reset zero options to empty object (for cases when we get null, undefined, [] or so)
     if (! Options) Options = {};
 
     // Display options
@@ -150,10 +150,17 @@
 
     $.ajax(request)
      .done(function(data){
-       if (data.init)
+       if (data.init){
          window.rangeSelector.enable();
          renderGraphic(ID, data.options, data.data);
-       });
+         window.Graphic.connected();
+       } else {
+         window.Graphic.reconnect("http: no 'init' found");
+       }
+     })
+     .fail(function(jqXHR, status) {
+       window.Graphic.reconnect("http: error "+ status);
+     });
   }
 
   function requestWsGraphic(ID, Embed, subpath, step) {
@@ -191,6 +198,7 @@
         graph.websocket = s;
         // To improve viewing speed we trigger redraw externally, not on every data packet
         startRedraw(ID, graph, 250);
+        window.Graphic.connected();
       } else if (data.set) {
         setGraphicData(ID, data);
       } else {
@@ -202,12 +210,8 @@
       var chart = window.graphics[ID];
       if (chart) {
         chart.websocket && delete chart.websocket;
-        if (!evt.wasClean){
-          console.log("lost websocket connection");
-        }
-      } else {
-        obj('#' + ID).innerText = "Error";
       }
+      window.Graphic.reconnect("ws: lost connection");
     };
   };
 
@@ -282,6 +286,17 @@
   };
 
 
+  var self = {
+    init: init,
+    autoHeight: autoHeight,
+    render: renderGraphic,
+    ws_request: requestWsGraphic,
+    request: dispatchRequest,
+    connectionFailures: 0,
+    reconnect: processFailure,
+    connected: processConnect
+  };
+
 
   function init(config){
     self.config = config || {};
@@ -290,24 +305,40 @@
     window.rangeSelector = new RangeSelector(self.config.range_selector);
   };
 
-  function dispatchRequest(step){
-    if (step <= self.config.realtime_threshold){
+  function dispatchRequest(step, protocol){
+    self.currentStep = step;
+    if (step <= self.config.realtime_threshold && (protocol === 'ws' || !protocol)){
+      self.currentProtocol = 'ws';
       requestWsGraphic(self.config.container, self.config.embed, self.config.ws_path, step);
     }else{
+      self.currentProtocol = 'http';
       requestHttpGraphic(self.config.container, self.config.embed, self.config.http_path, step);
     }
   }
 
+  function processFailure(errorMsg){
+    self.connectionFailures++;
+    clearTimeout(self.reconnectTimer);
 
+    var delay = self.connectionFailures % 10;
+    var step = self.currentStep;
 
-  var self = {
-    init: init,
-    autoHeight: autoHeight,
-    render: renderGraphic,
-    ws_request: requestWsGraphic,
-    request: dispatchRequest
-  };
+    // protocol is 'ws'   and failures  < threshold -> reconnect using websocket
+    // protocol is 'ws'   and failures >= threshold -> reconnect using http
+    // protocol is 'http'                           -> reconnect using http
+    var protocol = self.currentProtocol === 'ws'
+                && self.connectionFailures < self.config.failure_threshold
+                 ? 'ws'
+                 : 'http';
+    console.log("Next try after " + delay + " seconds");
+    self.reconnectTimer = setTimeout(function(){
+      self.request(step, protocol)
+    }, 1000*delay);
+  }
 
+  function processConnect(){
+    window.rangeSelector.setUrlData(self.currentStep, self.currentProtocol);
+  }
 
   window.Graphic = self;
   window.graphics = {};

@@ -261,6 +261,7 @@ page_initial_data(Title, Embed, Path, _Queries, Zoom) ->
    {config, jsx:encode([{embed, Embed},
                         {container, <<"pulse">>},
                         {range_selector, RangeSelector},
+                        {failure_threshold, 8},
                         {ws_path, filename:join([Path, ?WS_PATH])},
                         {http_path, filename:join([Path, ?HTTP_PATH])}])}].
 

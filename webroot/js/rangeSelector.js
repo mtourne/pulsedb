@@ -73,6 +73,23 @@ var RangeSelector = function(id, ranges){
       self.enableTimer = setTimeout(self.enable, 5000);
   }
 
+  self.setUrlData = function(step, proto){
+    var data = (step  && !isNaN(step)     ? step : '')
+             + (proto && proto.length > 0 ? '/'+proto : '');
+    window.history.replaceState("", "", location.pathname+"#"+data);
+  }
+
+  self.getUrlData = function(){
+    var parts = location.hash.slice(1).split('/');
+    var step = Number(parts[0]) || null;
+    var proto = parts[1] || null;
+    var out = {
+      step:  step  || null,
+      proto: proto || null
+    };
+    return out;
+  }
+
   self.render();
   return self;
 };
