@@ -103,8 +103,6 @@ upgrade0(Req, Env, _Mod, Args) ->
       gen_tracker:find_or_open(Tracker, Spec);
     ProvidedDb =/= undefined ->
       {ok, ProvidedDb};
-    DBPath =/= undefined ->
-      pulsedb:open(DBPath);
     true ->
       {ok, _} = cowboy_req:reply(501, [], "Database not configured\n", Req6),
       exit(normal)
