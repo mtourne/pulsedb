@@ -72,6 +72,8 @@ stop(DB) ->
 
 -record(worker, {
   db,
+  stop_timeout,
+  stop_timer,
   clean_timer,
   clean_timeout
 }).
@@ -89,7 +91,12 @@ init([Name, Options]) ->
         CleanTimeout -> erlang:send_after(?CLEAN, self(), clean)
       end,
       proc_lib:init_ack({ok, self()}),
-      State = #worker{db = DB, clean_timer = CleanTimer, clean_timeout = CleanTimeout},
+      StopTimeout = proplists:get_value(timeout, Options),
+      StopTimer = case StopTimeout of
+        undefined -> undefined;
+        _ -> erlang:send_after(StopTimeout, self(), stop)
+      end,
+      State = #worker{db = DB, clean_timer = CleanTimer, clean_timeout = CleanTimeout, stop_timeout = StopTimeout, stop_timer = StopTimer},
       gen_server:enter_loop(?MODULE, [], State);
     {error, E} ->
       proc_lib:init_ack({error, E}),
@@ -97,10 +104,16 @@ init([Name, Options]) ->
   end.
 
 
-handle_call({append, Ticks}, _, #worker{db = DB} = W) ->
+handle_call({append, Ticks}, _, #worker{db = DB, stop_timeout = StopTimeout, stop_timer = OldTimer} = W) ->
   case pulsedb:append(Ticks, DB) of
     {ok, DB1} ->
-      {reply, {ok, self()}, W#worker{db = DB1}};
+      StopTimer = case StopTimeout of
+        undefined -> undefined;
+        _ ->
+          erlang:cancel_timer(OldTimer),
+          erlang:send_after(StopTimeout, self(), stop)
+      end,
+      {reply, {ok, self()}, W#worker{db = DB1, stop_timer = StopTimer, stop_timeout = StopTimeout}};
     {error, E} ->
       {stop, normal, {error, E}, W}
   end;
@@ -119,6 +132,11 @@ handle_call(sync, _, #worker{db = DB} = W) ->
 handle_call(stop, _, #worker{} = W) ->
   {stop, normal, ok, W}.
 
+
+
+
+handle_info(stop, #worker{} = W) ->
+  {stop, normal, W};
 
 handle_info(clean, #worker{clean_timer = undefined} = W) ->
   {noreply, W};
