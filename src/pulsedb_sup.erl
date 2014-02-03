@@ -29,6 +29,7 @@ init([]) ->
     {pulsedb_collectors, {supervisor, start_link, [{local,pulsedb_collectors}, ?MODULE, [pulsedb_collectors]]}, permanent, infinity, supervisor, []},
     {pulsedb_realtime, {pulsedb_realtime, start_link, []}, permanent, 100, worker, []},
     {pulsedb_embed_cache, {pulsedb_embed_cache, start_link, []}, permanent, 100, worker, []},
-    {pulsedb_pushers,    {gen_tracker, start_link, [pulsedb_pushers]}, permanent, 2000, supervisor, []}
+    {pulsedb_pushers,    {gen_tracker, start_link, [pulsedb_pushers]}, permanent, 2000, supervisor, []},
+    {pulsedb_shards,    {gen_tracker, start_link, [pulsedb_shards]}, permanent, 2000, supervisor, []}
   ],
   {ok, {{one_for_one, 10, 10}, Supervisors}}.

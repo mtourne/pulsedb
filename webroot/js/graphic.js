@@ -155,11 +155,11 @@
          renderGraphic(ID, data.options, data.data);
          window.Graphic.connected();
        } else {
-         window.Graphic.reconnect("http: no 'init' found");
+     //    window.Graphic.reconnect("http: no 'init' found");
        }
      })
      .fail(function(jqXHR, status) {
-       window.Graphic.reconnect("http: error "+ status);
+   //    window.Graphic.reconnect("http: error "+ status);
      });
   }
 
@@ -211,7 +211,7 @@
       if (chart) {
         chart.websocket && delete chart.websocket;
       }
-      window.Graphic.reconnect("ws: lost connection");
+    //  window.Graphic.reconnect("ws: lost connection");
     };
   };
 

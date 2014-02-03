@@ -74,7 +74,7 @@ start() ->
 
   case application:get_env(pulsedb, path) of
     {ok, Path} ->
-      Spec = {simple_db, {pulsedb, open, [simple_db, [{url,"file://"++Path}]]}, permanent, 100, worker, []},
+      Spec = {simple_db, {pulsedb, open, [simple_db, [{url,"sharded://"++Path}]]}, permanent, 100, worker, []},
       case supervisor:start_child(pulsedb_sup, Spec) of
         {ok, _} ->
           lager:info("Opened single pulsedb storage at ~s", [Path]);
@@ -106,6 +106,11 @@ start() ->
     _ ->
       []
   end,
+  
+  DBPath = case application:get_env(pulsedb, path) of
+    {ok, P} -> [{path,P}];
+    _ -> []
+  end,
 
   StaticDir = case application:get_key(cowboy,vsn) of
     {ok, "0.9."++_} -> {dir, "webroot/js", [{mimetypes, cow_mimetypes, web}]};
@@ -114,7 +119,7 @@ start() ->
 
   Dispatch = [{'_', [
     {"/api/v1/status", pulsedb_netpush_handler, [status]},
-    {"/api/v1/pulse_push", pulsedb_netpush_handler, [{db,simple_db}] ++ Auth},
+    {"/api/v1/pulse_push", pulsedb_netpush_handler, [{tracker, pulsedb_shards}] ++ Auth ++ DBPath},
     {"/embed/[...]", pulsedb_graphic_handler, [{db,simple_db}] ++ EmbedResolver ++ Auth},
     {"/pages/points/[...]", pulsedb_points_handler, [] ++ Superuser},
     {"/js/[...]", cowboy_static, StaticDir}

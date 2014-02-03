@@ -39,7 +39,8 @@ open(Name, Options) when is_atom(Name) ->
       case URL of
         <<"file://", _/binary>> -> pulsedb_disk:open(URL, Opts1);
         <<"pulse://", _/binary>> -> pulsedb_netpush:open(URL, Opts1);
-        <<"pulses://", _/binary>> -> pulsedb_netpush:open(URL, Opts1)
+        <<"pulses://", _/binary>> -> pulsedb_netpush:open(URL, Opts1);
+        <<"sharded://", _/binary>> -> pulsedb_sharded:open(URL, Opts1)
       end;
     _ -> 
       pulsedb_worker:start_link(Name, Options)
