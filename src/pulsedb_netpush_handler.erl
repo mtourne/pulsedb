@@ -124,6 +124,7 @@ upgrade0(Req, Env, _Mod, Args) ->
   gen_tracker:setattr(pulsedb_pushers, TrackerId,
                       [{account,Account},
                        {ip, Ip},
+                       {pulse_count, 0},
                        {user_tags, UserTags}]),
   put('$ancestors', [self()]),
   put(name, {pulsedb_netpush, Ip}),
@@ -198,7 +199,7 @@ handle_msg(<<"metric ", Msg/binary>>, #netpush{metrics = Metrics} = State) ->
   Metrics1 = lists:keystore(MetricId, 1, Metrics, {MetricId, {Name,Tags}}),
   State#netpush{metrics = Metrics1};
 
-handle_msg(<<C,_/binary>> = Msg, #netpush{metrics = Metrics, utc = UTC0, db = DB, user_tags = UserTags} = State) when C >= $0 andalso C =< $9 ->
+handle_msg(<<C,_/binary>> = Msg, #netpush{metrics = Metrics, utc = UTC0, db = DB, user_tags = UserTags, tracker_id = TrackerId} = State) when C >= $0 andalso C =< $9 ->
   [MetricId, UTCDelta, Val] = binary:split(Msg, <<" ">>, [global]),
   {_,{Name, Tags}} = lists:keyfind(MetricId, 1, Metrics),
   UTC = UTC0 + binary_to_integer(UTCDelta),
@@ -216,6 +217,7 @@ handle_msg(<<C,_/binary>> = Msg, #netpush{metrics = Metrics, utc = UTC0, db = DB
   end,
   Tags1 = UserTags ++ [{T,V} || {T,V} <- Tags, lists:keyfind(T,1,UserTags) == false],
   pulsedb:append({Name,UTC,Value,Tags1}, seconds),
+  gen_tracker:increment(pulsedb_pushers, TrackerId, pulse_count, 1),
   case pulsedb:append({Name,UTC,Value,Tags1}, DB) of
     {ok, DB1} -> State#netpush{utc = UTC, db = DB1};
     undefined -> State#netpush{utc = UTC}
