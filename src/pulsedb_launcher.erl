@@ -71,7 +71,7 @@ start() ->
 
   case application:get_env(pulsedb, path) of
     {ok, Path} ->
-      lager:info("Open pulsedb storage at ~s", [Path]),
+      lager:info("Open single pulsedb storage at ~s", [Path]),
       Spec = {simple_db, {pulsedb, open, [simple_db, [{url,"file://"++Path}]]}, permanent, 100, worker, []},
       supervisor:start_child(pulsedb_sup, Spec);
     _ ->
@@ -102,7 +102,11 @@ start() ->
 
   ResolverSpec = {pulsedb_embed_resolver, {pulsedb_embed_resolver, start_link, [Auth ++ EmbedResolver]},
                                           permanent, 100, worker, []},
-  supervisor:start_child(pulsedb_sup, ResolverSpec),
+  case supervisor:start_child(pulsedb_sup, ResolverSpec) of
+    {ok, _} -> ok;
+    {error, ResolverError} ->
+      lager:error("Failed to start embed resolver: ~p", [ResolverError])
+  end,
 
   StaticDir = case application:get_key(cowboy,vsn) of
     {ok, "0.9."++_} -> {dir, "webroot/js", [{mimetypes, cow_mimetypes, web}]};
@@ -128,6 +132,7 @@ start() ->
         {dispatch, cowboy_router:compile(Dispatch)}
       ]}]);
     _ ->
+      lager:debug("No HTTP port configured, don't start listener"),
       undefined
   end,
   case os:getenv("PIDFILE") of
