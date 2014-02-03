@@ -76,14 +76,14 @@ create_new_db(#disk_db{path = Path, date = Date, mode = append} = DB) when Date 
     {error, Reason1} -> throw({error, {create_path_failed,ConfigPath,Reason1}})
   end,
 
-  Opts = [binary,write,exclusive,raw,{delayed_write, 128000, 4000}],
+  Opts = [binary,write,exclusive,raw],
 
   {ok, ConfigFd} = case file:open(ConfigPath, Opts) of
     {ok, CFile_} -> {ok, CFile_};
     {error, Reason2} -> throw({error,{open_config_failed,ConfigPath,Reason2}})
   end,
 
-  {ok, DataFd} = file:open(DataPath, Opts),
+  {ok, DataFd} = file:open(DataPath, Opts ++ [{delayed_write, 128000, 5000}]),
 
   DB#disk_db{path = Path, config_fd = ConfigFd, data_fd = DataFd, sources = []}.
 
