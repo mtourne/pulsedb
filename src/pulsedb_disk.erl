@@ -403,44 +403,19 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
   To = proplists:get_value(to,Query, pulsedb_time:daystart(DateUTC)+86400 - 1),
 
   HrsToRead = hours(From, To, DateUTC),
-  {Hrs, Locations} = 
-  lists:unzip(lists:flatmap(
-    fun(#source{block_offsets = Offsets}) ->
-      [begin
-         {H, BlockOffset, Limit} = lists:keyfind(H, 1, HrsToRead),
-         {H,{Offset bsl 13 + BlockOffset, Limit}}
-         end 
-       || {H,Offset} <- Offsets, lists:keymember(H, 1, HrsToRead)]
-    end, ReadSources)),
-
   
-  Ticks1 = case file:pread(DataFd, Locations) of
-    {ok, Data} ->
-      lists:zipwith(fun (H,Bin) when is_binary(Bin) ->
-        unpack_ticks(Bin, DateUTC + H*3600);
-        (_,_) -> []
-      end, Hrs, Data);
-    {error, Reason} ->
-      lager:info("error reading source ~p: ~p", [{Name, Query}, Reason]),
-      [];
-    _ -> 
-      []
-  end,
-  Ticks2 = lists:sort(lists:concat(Ticks1)),
-
-  
-%   Ticks1 = lists:flatmap(fun(#source{block_offsets = Offsets}) ->
-%     lists:flatmap(fun({H,Offset}) ->
-%       {H, BlockOffset, Limit} = lists:keyfind(H, 1, HrsToRead),
-%       case file:pread(DataFd, Offset bsl 13 + BlockOffset, Limit) of
-%         {ok, Bin} ->
-%           unpack_ticks(Bin, DateUTC + H*3600);
-%         _ ->
-%           []
-%       end
-%     end, [O || {H,_}=O <- Offsets, lists:keymember(H, 1, HrsToRead)])
-%   end, ReadSources),
-%  Ticks2 = lists:sort(Ticks1),
+  Ticks1 = lists:flatmap(fun(#source{block_offsets = Offsets}) ->
+    lists:flatmap(fun({H,Offset}) ->
+      {H, BlockOffset, Limit} = lists:keyfind(H, 1, HrsToRead),
+      case file:pread(DataFd, Offset bsl 13 + 2*BlockOffset, 2*Limit) of
+        {ok, Bin} ->
+          unpack_ticks(Bin, DateUTC + H*3600 + BlockOffset);
+        _ ->
+          []
+      end
+    end, [O || {H,_}=O <- Offsets, lists:keymember(H, 1, HrsToRead)])
+  end, ReadSources),
+ Ticks2 = lists:sort(Ticks1),
   
   Ticks3 = aggregate(proplists:get_value(aggregator,Query), Ticks2),
   Ticks4 = downsample(proplists:get_value(downsampler,Query), Ticks3),
@@ -453,11 +428,12 @@ hours(From, To, Date) ->
   DateStartD = Date div 86400,
   
   [begin
-     Offset = 2 * if 
+     Offset = if 
        F == H -> (From - H*3600) rem 3600;
        true -> 0 end,
      
-     Length = 2 * if
+     Length = if
+       Offset > 0     -> 3600 - Offset;
        T == F, T == H -> To - From + 1;
        T == H         -> To - H*3600 + 1;
        true           -> 3600 end,
@@ -545,20 +521,6 @@ downsample(D, [], _Step, UTC, Acc) -> [{UTC,D(Acc)}];
 downsample(D, [{UTC,V}|Ticks], Step, undefined, []) -> downsample(D, Ticks, Step, (UTC div Step)*Step, [V]);
 downsample(D, [{UTC,V}|Ticks], Step, N, Acc) when (UTC div Step)*Step == N -> downsample(D, Ticks, Step, N, [V|Acc]);
 downsample(D, [{UTC,V}|Ticks], Step, N, Acc) -> [{N,D(Acc)}|downsample(D, Ticks, Step, (UTC div Step)*Step, [V])].
-
-
-
-% filter_ticks([], _, _) ->
-%   [];
-
-% filter_ticks([{UTC,_}|Ticks], From, To) when From - UTC > 0 ->
-%   filter_ticks(Ticks, From, To);
-
-% filter_ticks([{UTC,_}|_Ticks], _From, To) when UTC - To > 0 ->
-%   [];
-
-% filter_ticks([Tick|Ticks], From, To) ->
-%   [Tick|filter_ticks(Ticks, From, To)].
 
 
 
