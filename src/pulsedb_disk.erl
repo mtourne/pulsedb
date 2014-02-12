@@ -403,23 +403,32 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
   To = proplists:get_value(to,Query, pulsedb_time:daystart(DateUTC)+86400 - 1),
 
   HrsToRead = hours(From, To, DateUTC),
-  
-  Ticks1 = lists:flatmap(fun(#source{block_offsets = Offsets}) ->
-    lists:flatmap(fun({H,Offset}) ->
-      {H, BlockOffset, Limit} = lists:keyfind(H, 1, HrsToRead),
-      case file:pread(DataFd, Offset bsl 13 + 2*BlockOffset, 2*Limit) of
-        {ok, Bin} ->
-          unpack_ticks(Bin, DateUTC + H*3600 + BlockOffset);
-        _ ->
+
+
+  Ticks1 = lists:flatmap(fun({H,BlockOffset,Limit}) ->
+    Ticks2 = lists:flatmap(fun(#source{block_offsets = Offsets}) ->
+      case lists:keyfind(H, 1, Offsets) of
+        {H, Offset} ->
+          case file:pread(DataFd, Offset bsl 13 + 2*BlockOffset, 2*Limit) of
+            {ok, Bin} ->
+              unpack_ticks(Bin, DateUTC + H*3600 + BlockOffset);
+            _ ->
+              []
+          end;
+        false ->
           []
-      end
-    end, [O || {H,_}=O <- Offsets, lists:keymember(H, 1, HrsToRead)])
-  end, ReadSources),
- Ticks2 = lists:sort(Ticks1),
+      end        
+    end, ReadSources),
+
+    Ticks3 = lists:sort(Ticks2),
+
+    Ticks4 = aggregate(proplists:get_value(aggregator,Query), Ticks3),
+    erlang:garbage_collect(self()),
+    Ticks4
+  end, HrsToRead),
   
-  Ticks3 = aggregate(proplists:get_value(aggregator,Query), Ticks2),
-  Ticks4 = downsample(proplists:get_value(downsampler,Query), Ticks3),
-  {ok, Ticks4, DB}.
+  Ticks5 = downsample(proplists:get_value(downsampler,Query), Ticks1),
+  {ok, Ticks5, DB}.
 
 
 hours(From, To, Date) ->

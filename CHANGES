@@ -1,3 +1,12 @@
+pulsedb (0.6)
+
+  * reduce memory usage on long queries
+
+pulsedb (0.5)
+
+  * read speed optimizations
+  * force garbage collecting
+
 pulsedb (0.4)
 
   * write delay in pulsedb disk
