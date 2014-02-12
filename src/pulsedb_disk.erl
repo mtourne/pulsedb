@@ -35,7 +35,7 @@
 -export([open/2, append/2, read/3, close/1, sync/1]).
 -export([info/1]).
 -export([delete_older/2, hours/3]).
-
+-export([shift_value/1, unshift_value/1]).
 -export([metric_name/2, metric_fits_query/2, aggregate/2, downsample/2]).
 
 
@@ -258,13 +258,17 @@ append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd} = DB) ->
   {ok, DB1}.
 
 
-shift_value(Value) when Value >= 0 andalso Value < 16#4000 -> <<3:2, Value:14>>;
-shift_value(Value) when Value >= 16#1000 andalso Value < 16#4000000 -> <<2:2, (Value bsr 10):14>>;
-shift_value(Value) when Value >= 16#1000000 andalso Value < 16#400000000 -> <<1:2, (Value bsr 20):14>>;
-shift_value(Value) when Value >= 16#1000000000 andalso Value < 16#200000000000 -> <<0:2, 1:1, (Value bsr 30):13>>;
-shift_value(Value) when Value >= 16#1000000000000 andalso Value < 16#200000000000000 -> <<0:2, 0:1, (Value bsr 40):13>>.
+% length(integer_to_list((16#1000000-1) bsr 10,2)) should be between 1 and 14
 
+shift_value(Value) when Value >= 0              andalso Value < 16#4000 -> <<3:2, Value:14>>;
+shift_value(Value) when Value >= 16#1000        andalso Value < 16#1000000 -> <<2:2, (Value bsr 10):14>>;
+shift_value(Value) when Value >= 16#100000      andalso Value < 16#400000000 -> <<1:2, (Value bsr 20):14>>;
+shift_value(Value) when Value >= 16#10000000    andalso Value < 16#80000000000 -> <<0:2, 1:1, (Value bsr 30):13>>;
+shift_value(Value) when Value >= 16#10000000000 andalso Value < 16#20000000000000 -> <<0:2, 0:1, (Value bsr 40):13>>.
 
+unshift_value(Bin) when is_binary(Bin) ->
+  [{_,V}] = unpack_ticks(Bin, 0),
+  V.
 
 
 

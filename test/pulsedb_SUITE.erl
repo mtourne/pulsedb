@@ -16,6 +16,8 @@ groups() ->
     netpush_ssl_append,
     worker_cleanup,
     parse_query,
+
+    value_shifter,
     collector,
     collector_with_backend,
     collector_with_dead_backend,
@@ -706,6 +708,21 @@ query_mutation(_) ->
 
 
 
+value_shifter(_) ->
+  Values = [0, 100, 1000, 1024, 2048, 4000, 
+  4096, 5000, 500*1000, 1000*1000, 2*1000*1000, 4*1000*1000, 
+  4096*1000, 5000*1000, 16777215, 33554431, 67108863, 500*1000*1000, 2000*1000*1000, 4000*1000*1000,
+  5000*1000*1000, 20*1000*1000*1000],
+
+  lists:foreach(fun(V) ->
+    V1 = pulsedb_disk:unshift_value(pulsedb_disk:shift_value(V)),
+    if
+      abs(V1 - V) / V > 0.10 -> ct:pal("too big difference while packing ~B to ~B", [V, V1]), error({broken_shift,V});
+      V1 - V > 0 -> ct:pal("unpacked value ~B bigger than ~B", [V1, V]);
+      true -> ok
+    end
+  end, Values),
+  ok.
 
 
 
