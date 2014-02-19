@@ -145,7 +145,10 @@ handle_info(flush, #collect{flush_timer = OldTimer, known_metrics = Metrics} = F
   % [Pid ! Msg || {_,Pid} <- ets:lookup(pulse_flow_clients, all)],
 
   FlushTimer = erlang:send_after(FlushDelay, self(), flush),
-  {noreply, Flow#collect{flush_timer = FlushTimer}}.
+  {noreply, Flow#collect{flush_timer = FlushTimer}};
+
+handle_info(_, #collect{} = Flow) ->
+  {noreply, Flow}.
 
 
 
