@@ -189,7 +189,11 @@ source_name(Name, Tags, #disk_db{cached_source_names = SourceNames} = DB) ->
       {SourceName, DB};
     false ->
       SourceName = metric_name(Name, Tags),
-      {SourceName, DB#disk_db{cached_source_names = [{{Name,Tags},SourceName}|SourceNames]}}
+      CachedSourceNames = if 
+        length(SourceNames) > 100 -> [{{Name,Tags},SourceName}] ++ lists:sublist(SourceNames, 90);
+        true -> [{{Name,Tags},SourceName}] ++ SourceNames
+      end,
+      {SourceName, DB#disk_db{cached_source_names = CachedSourceNames}}
   end.
 
 
