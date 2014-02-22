@@ -311,7 +311,7 @@ netpush_append(_) ->
 
 
 netpush_ssl_append(_) ->
-  Apikey = pulsedb_netpush_auth:make_api_key(key(), [{<<"point">>, <<"p1">>}]),
+  Apikey = pulsedb_netpush_auth:make_api_key(key(), [{<<"point">>, <<"p2">>}]),
   {ok, DB1} = pulsedb:open(netpush_ssl_client, [{url, "pulses://localhost:6802/"},{api_key,Apikey}]),
 
   Ticks1 = [
