@@ -16,18 +16,6 @@
 -type source() :: #source{}.
 
 
--record(storage_config, 
- {
-  ticks_per_chunk = 3600,
-  tick_size = 2,
-  chunks_per_metric = 24,
-  chunk_bitsize = 13,
-  offset_size = 4,
-  partition_module = pulsedb_disk
-  }).
-
--type storage_config() :: #storage_config{}.
-
 -record(disk_db, 
  {
   storage = pulsedb_disk,
@@ -41,8 +29,22 @@
   config_fd :: file:fd(),
   data_fd :: file:fd(),
   
-  config = #storage_config{}
+  config :: storage_config()
 }).
+
+
+-callback required_chunks(From :: utc(), To :: utc(), Date :: utc(), Config :: storage_config()) -> Chunks :: list(tuple(Chunk :: non_neg_integer(), Offset :: non_neg_integer(), Length :: non_neg_integer())).
+-callback required_partitions(UTC :: utc(), UTC :: utc(), Config :: storage_config()) -> PathList :: list(file:filename()).
+
+-callback chunk_number(UTC :: utc(), Config :: storage_config()) -> Num :: non_neg_integer().
+-callback tick_number (UTC :: utc(), Config :: storage_config()) -> Num :: non_neg_integer().
+
+-callback block_path(UTC :: utc()) -> Path :: file:filename().
+-callback parse_date(Path :: file:filename()) -> UTC :: utc().
+
+-callback block_start_utc(UTC :: utc(), Config :: storage_config()) -> FirstBlockUTC :: utc().
+-callback block_end_utc  (UTC :: utc(), Config :: storage_config()) -> LastBlockUTC :: utc().
+
 
 
 
@@ -51,16 +53,35 @@
 -export([delete_older/2]).
 -export([metric_name/2, metric_fits_query/2]).
 
--export([required_chunks/4, chunk_start/1, chunk_end/1, required_partitions/3, block_path/1, parse_date/1, tick_offset/3, chunk_number/2]).
-
 
 -spec open(Path::file:filename(), Options::list()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
 open(Path, Options) when is_list(Path) ->
   open(iolist_to_binary(Path), Options);
 open(<<"file://", Path/binary>>, Options) ->
   open(Path, Options);
-open(Path, _Options) when is_binary(Path) ->
-  {ok, #disk_db{path = Path}}.
+open(Path, Options) when is_binary(Path) ->
+  Resolution = proplists:get_value(resolution, Options, seconds),
+  Config = resolution_config(Resolution),
+  {ok, #disk_db{path = Path, config = Config}}.
+
+
+resolution_config(minutes) ->
+  #storage_config{
+   ticks_per_chunk = 24*60,
+   chunks_per_metric = 32,
+   chunk_bits = 12,
+   utc_step = 60,
+   partition_module = pulsedb_disk_minutes
+  };
+
+resolution_config(_) ->
+  #storage_config{
+   ticks_per_chunk = 60*60,
+   chunks_per_metric = 24,
+   chunk_bits = 13,
+   utc_step = 1,
+   partition_module = pulsedb_disk_seconds
+  }.
 
 
 open0(#disk_db{path = Path, config_fd = undefined, date = Date} = DB, Mode) when Date =/= undefined ->
@@ -215,27 +236,28 @@ source_name(Name, Tags, #disk_db{cached_source_names = SourceNames} = DB) ->
 
 
 
-append_new_source(SourceName, Name, Tags, #disk_db{sources = Sources, config_fd = ConfigFd} = DB) ->
+append_new_source(SourceName, Name, Tags, #disk_db{sources = Sources, config_fd = ConfigFd, config = Config} = DB) ->
   {ok, ConfigPos} = file:position(ConfigFd, eof),
   Source = #source{id = length(Sources), name = SourceName, offsets_offset = ConfigPos + 5 + size(SourceName),
     original_name = Name, original_tags = Tags},
-  Bin = encode_config(Source),
+  Bin = encode_config(Source, Config),
   ok = file:pwrite(ConfigFd, ConfigPos, Bin),
   {ok, Source#source.id, DB#disk_db{sources = Sources ++ [Source]}}.
 
 
 -define(CONFIG_SOURCE, 4).
 
-encode_config(#source{name = Name, block_offsets = Offsets}) ->
+encode_config(#source{name = Name, block_offsets = Offsets}, #storage_config{}=Config) ->
   L = size(Name),
-  OffsetsBin = pack_offsets(Offsets),
+  OffsetsBin = pack_offsets(Offsets, Config),
   Conf = [<<L:16, Name:L/binary>>, OffsetsBin],
   Size = iolist_size(Conf),
   iolist_to_binary([<<?CONFIG_SOURCE, Size:16>>, Conf]).
 
 
-pack_offsets(Offsets) ->
-  [<<(proplists:get_value(I, Offsets, -1)):32/signed>> || I <- lists:seq(0,23)].
+pack_offsets(Offsets, #storage_config{chunks_per_metric=NChunks, offset_bytes=OSize}) ->
+  OffsetSize = OSize * 8,
+  [<<(proplists:get_value(I, Offsets, -1)):OffsetSize/signed>> || I <- lists:seq(0,NChunks-1)].
 
 -spec decode_config(binary(), storage_config()) -> [source()].
 
@@ -243,10 +265,10 @@ decode_config(Bin, #storage_config{}=Config) when is_binary(Bin) ->
   decode_config(Bin, 0, 0, Config).
 
 decode_config(<<?CONFIG_SOURCE, Length:16, Source:Length/binary, Rest/binary>>, ConfigOffset, Id, 
-              #storage_config{chunks_per_metric=NChunks, offset_size=OSize}=Config) ->
-  OffsetsSize = NChunks * OSize,
+              #storage_config{chunks_per_metric=NChunks, offset_bytes=OSize}=Config) ->
+  OffsetDataSize = NChunks * OSize,
   OffsetSize = OSize * 8,
-  <<L:16, Name:L/binary, OffsetsBin:OffsetsSize/binary>> = Source,
+  <<L:16, Name:L/binary, OffsetsBin:OffsetDataSize/binary>> = Source,
   Offsets =[ {I,O} || {I,O} <- lists:zip(lists:seq(0,NChunks-1), [O || <<O:OffsetSize/signed>> <= OffsetsBin]), O >= 0],
 
   [OriginalName|Tags] = binary:split(Name, <<":">>, [global]),
@@ -271,9 +293,16 @@ to_b(Bin) when is_binary(Bin) -> Bin.
 
 append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd} = DB) ->
   #disk_db{sources = Sources, 
-           config = #storage_config{partition_module = Partition}=Config} = DB1 = open_hour_if_required(SourceId, UTC, DB),
+           config = #storage_config{partition_module = Partition,
+                                    chunk_bits = ChunkBits,
+                                    tick_bytes = TickSize}=Config} = DB1 = open_hour_if_required(SourceId, UTC, DB),
   #source{block_offsets = Offsets} = lists:keyfind(SourceId,#source.id,Sources),
-  Offset = Partition:tick_offset(UTC, Offsets, Config),
+  
+  Chunk = Partition:chunk_number(UTC, Config),
+  Tick = Partition:tick_number(UTC, Config),
+  {_, ChunkOffset} = lists:keyfind(Chunk, 1, Offsets),
+  Offset = (ChunkOffset bsl ChunkBits) + Tick*TickSize,
+
   ok = file:pwrite(DataFd, Offset, pulsedb_data:shift_value(Value)),
   {ok, DB1}.
 
@@ -282,8 +311,8 @@ append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd} = DB) ->
 
 
 open_hour_if_required(SourceId, UTC, #disk_db{config_fd = ConfigFd, data_fd = DataFd, sources = Sources, 
-                                              config = #storage_config{ticks_per_chunk=NTicks, tick_size=TickSize,
-                                                                       chunk_bitsize=ChunkBits, partition_module=Partition}=Config} = DB) ->
+                                              config = #storage_config{ticks_per_chunk=NTicks, tick_bytes=TickSize,
+                                                                       chunk_bits=ChunkBits, partition_module=Partition}=Config} = DB) ->
   ChunkSize = 1 bsl ChunkBits,
   ChunkTicksSize = TickSize * NTicks,
   ChunkStuffSize = ChunkSize - ChunkTicksSize,
@@ -309,7 +338,7 @@ open_hour_if_required(SourceId, UTC, #disk_db{config_fd = ConfigFd, data_fd = Da
       end,
       ok = file:pwrite(DataFd, BlockOffset + ChunkTicksSize, AdditionalInfo),
       Offsets1 = lists:keystore(ChunkNo, 1, Offsets, {ChunkNo, BlockOffset bsr ChunkBits}),
-      ok = file:pwrite(ConfigFd, O, pack_offsets(Offsets1)),
+      ok = file:pwrite(ConfigFd, O, pack_offsets(Offsets1, Config)),
 
       Sources1 = lists:keystore(SourceId, #source.id, Sources, Source#source{block_offsets = Offsets1}),
       DB#disk_db{sources = Sources1}
@@ -370,7 +399,7 @@ read(Name, Query, #disk_db{path = Path, date = Date, config = #storage_config{pa
   {from,From} = lists:keyfind(from,1,Query),
   {to,To} = lists:keyfind(to,1,Query),
   RequiredDates = Partition:required_partitions(From, To, Config),
-  case load_ticks(RequiredDates, Name, Query, #disk_db{path = Path, date = Date}) of
+  case load_ticks(RequiredDates, Name, Query, #disk_db{path = Path, date = Date, config = Config}) of
     {ok, Ticks, DB1} ->
       close(DB1),
       {ok, Ticks, DB};
@@ -411,26 +440,27 @@ read0(Name, Query, #disk_db{config_fd = undefined, date = Date} = DB) when Date 
 
 read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mode = read, 
                             config = #storage_config{ticks_per_chunk=NTicks, 
-                                                     tick_size=TickSize, 
-                                                     chunk_bitsize=ChunkBits,
+                                                     tick_bytes=TickSize, 
+                                                     chunk_bits=ChunkBits,
+                                                     utc_step = UTCStep,
                                                      partition_module=Partition} = Config} = DB) when Date =/= undefined ->
   Tags = [{K,V} || {K,V} <- Query, is_binary(K)],
 
   ReadSources = select_sources(Name, Tags, Sources),
 
   DateUTC = Partition:parse_date(Date),
-  From = proplists:get_value(from,Query, Partition:chunk_start(DateUTC)),
-  To = proplists:get_value(to,Query, Partition:chunk_end(DateUTC)),
+  From = proplists:get_value(from,Query, Partition:block_start_utc(DateUTC, Config)),
+  To = proplists:get_value(to,Query, Partition:block_end_utc(DateUTC, Config)),
 
   HrsToRead = Partition:required_chunks(From, To, DateUTC, Config),
 
-  Ticks1 = lists:flatmap(fun({H,BlockOffset,Limit}) ->
+  Ticks1 = lists:flatmap(fun({H,TickOffset,Limit}) ->
     Ticks2 = lists:flatmap(fun(#source{block_offsets = Offsets}) ->
       case lists:keyfind(H, 1, Offsets) of
-        {H, Offset} ->
-          case file:pread(DataFd, Offset bsl ChunkBits + TickSize*BlockOffset, TickSize*Limit) of
+        {ChunkN, Offset} ->
+          case file:pread(DataFd, Offset bsl ChunkBits + TickSize*TickOffset, TickSize*Limit) of
             {ok, Bin} ->
-              pulsedb_data:unpack_ticks(Bin, DateUTC + H*NTicks + BlockOffset);
+              pulsedb_data:unpack_ticks(Bin, DateUTC + (ChunkN*NTicks + TickOffset)*UTCStep, UTCStep);
             _ ->
               []
           end;
@@ -504,58 +534,3 @@ delete_older(Time, #disk_db{path = Path, config = #storage_config{partition_modu
 
 
 
-
-
-
-tick_offset(UTC, Offsets, #storage_config{ticks_per_chunk=NTicks,
-                                          chunk_bitsize=ChunkBits,
-                                          tick_size = TickSize}=Config) ->
-  Hour = chunk_number(UTC, Config),
-  {_, BlockOffset} = lists:keyfind(Hour, 1, Offsets),
-  Second = UTC rem NTicks,
-  (BlockOffset bsl ChunkBits) + Second*TickSize.
-
-chunk_number(UTC, #storage_config{ticks_per_chunk=NTicks,
-                                  chunks_per_metric=NChunks}) ->
-   (UTC rem (NChunks*NTicks)) div NTicks.
-
-
-chunk_start(UTC) ->
-  pulsedb_time:daystart(UTC).
-
-chunk_end(UTC) ->
-  pulsedb_time:daystart(UTC)+86400 - 1.
-  
-
-required_chunks(From, To, Date, #storage_config{ticks_per_chunk = NTicks, chunks_per_metric = NChunks}) ->
-  F = From div NTicks,
-  T = To div NTicks,
-  DateStartD = Date div (NTicks * NChunks),
-  
-  [begin
-     Offset = if 
-       F == H -> (From - H*NTicks) rem NTicks;
-       true -> 0 end,
-     
-     Length = if
-       Offset > 0     -> NTicks - Offset;
-       T == F, T == H -> To - From + 1;
-       T == H         -> To - H*NTicks + 1;
-       true           -> NTicks end,
-     
-     {H rem NChunks, Offset, Length}
-     end || H <- lists:seq(F, T), H div NChunks == DateStartD].
-
-
-required_partitions(From, To, #storage_config{ticks_per_chunk = NTicks, chunks_per_metric = NChunks}) ->
-  MetricTicksPerBlock = NTicks * NChunks,
-  [pulsedb_time:date_path(X*MetricTicksPerBlock) 
-   || X <- lists:seq(From div MetricTicksPerBlock,To div MetricTicksPerBlock)].
-
-
-block_path(UTC) ->
-  pulsedb_time:date_path(UTC).
-
-
-parse_date(Date) ->
-  pulsedb_time:parse(Date).

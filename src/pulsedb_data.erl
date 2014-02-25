@@ -1,5 +1,5 @@
 -module(pulsedb_data).
--export([shift_value/1, unshift_value/1, unpack_ticks/2]).
+-export([shift_value/1, unshift_value/1, unpack_ticks/2, unpack_ticks/3]).
 -export([aggregate/2, downsample/2]).
 
 
@@ -67,10 +67,13 @@ unshift_value(Bin) when is_binary(Bin) ->
   [{_,V}] = unpack_ticks(Bin, 0),
   V.
 
-unpack_ticks(<<>>, _) -> [];
-unpack_ticks(<<0:16, Rest/binary>>, UTC) -> unpack_ticks(Rest, UTC+1);
-unpack_ticks(<<3:2, Value:14, Rest/binary>>, UTC) -> [{UTC,Value}|unpack_ticks(Rest, UTC+1)];
-unpack_ticks(<<2:2, Value:14, Rest/binary>>, UTC) -> [{UTC,Value bsl 10}|unpack_ticks(Rest, UTC+1)];
-unpack_ticks(<<1:2, Value:14, Rest/binary>>, UTC) -> [{UTC,Value bsl 20}|unpack_ticks(Rest, UTC+1)];
-unpack_ticks(<<0:2, 1:1, Value:13, Rest/binary>>, UTC) -> [{UTC,Value bsl 30}|unpack_ticks(Rest, UTC+1)];
-unpack_ticks(<<0:2, 0:1, Value:13, Rest/binary>>, UTC) -> [{UTC,Value bsl 40}|unpack_ticks(Rest, UTC+1)].
+unpack_ticks(Data, UTC) ->
+  unpack_ticks(Data, UTC, 1).
+
+unpack_ticks(<<>>, _, _) -> [];
+unpack_ticks(<<0:16, Rest/binary>>, UTC, Step) -> unpack_ticks(Rest, UTC+Step, Step);
+unpack_ticks(<<3:2, Value:14, Rest/binary>>, UTC, Step) -> [{UTC,Value}|unpack_ticks(Rest, UTC+Step, Step)];
+unpack_ticks(<<2:2, Value:14, Rest/binary>>, UTC, Step) -> [{UTC,Value bsl 10}|unpack_ticks(Rest, UTC+Step, Step)];
+unpack_ticks(<<1:2, Value:14, Rest/binary>>, UTC, Step) -> [{UTC,Value bsl 20}|unpack_ticks(Rest, UTC+Step, Step)];
+unpack_ticks(<<0:2, 1:1, Value:13, Rest/binary>>, UTC, Step) -> [{UTC,Value bsl 30}|unpack_ticks(Rest, UTC+Step, Step)];
+unpack_ticks(<<0:2, 0:1, Value:13, Rest/binary>>, UTC, Step) -> [{UTC,Value bsl 40}|unpack_ticks(Rest, UTC+Step, Step)].

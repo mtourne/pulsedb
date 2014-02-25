@@ -1,6 +1,6 @@
 -module(pulsedb_time).
 
--export([daystart/1, date_time/1]).
+-export([daystart/1, date_time/1, utc/1]).
 
 
 -export([parse/1, date_path/1]).
