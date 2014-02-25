@@ -100,8 +100,8 @@ read(Name, Query, DB) when DB == seconds orelse DB == minutes ->
     end, Ticks)
   end, Metrics),
 
-  Values2 = pulsedb_disk:aggregate(proplists:get_value(aggregator,Query), lists:sort(Values1)),
-  Values3 = pulsedb_disk:downsample(proplists:get_value(downsampler,Query), Values2),
+  Values2 = pulsedb_data:aggregate(proplists:get_value(aggregator,Query), lists:sort(Values1)),
+  Values3 = pulsedb_data:downsample(proplists:get_value(downsampler,Query), Values2),
 
   {ok, Values3, DB}.
 

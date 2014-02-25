@@ -715,7 +715,7 @@ value_shifter(_) ->
   5000*1000*1000, 20*1000*1000*1000],
 
   lists:foreach(fun(V) ->
-    V1 = pulsedb_disk:unshift_value(pulsedb_disk:shift_value(V)),
+    V1 = pulsedb_data:unshift_value(pulsedb_data:shift_value(V)),
     if
       abs(V1 - V) / V > 0.10 -> ct:pal("too big difference while packing ~B to ~B", [V, V1]), error({broken_shift,V});
       V1 - V > 0 -> ct:pal("unpacked value ~B bigger than ~B", [V1, V]);
