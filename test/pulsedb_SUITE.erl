@@ -30,7 +30,8 @@ groups() ->
     % forbid_to_append_after_read,
     info,
     required_dates,
-    query_mutation
+    query_mutation,
+    sharding
   ]}].
 
 
@@ -727,6 +728,31 @@ value_shifter(_) ->
 
 
 
+sharding(_) ->
+  {ok, Tracker} = gen_tracker:start_link(test_sharding),
+  unlink(Tracker),
+  {ok, DB} = pulsedb:open(undefined, [{url, <<"sharded://test/sharding">>}, 
+                                      {shard_tag, <<"a">>},
+                                      {tracker, test_sharding}]),
 
+  Tags1 = [{<<"a">>, <<"1">>}],
+  Tags2 = [{<<"a">>, <<"2">>}],
+  
+  {ok, DB1} = pulsedb:append([{<<"x">>, 1, 1, Tags1}], DB),
+  {ok, DB2} = pulsedb:append([{<<"x">>, 2, 1, Tags1}], DB1),
+  {ok, DB3} = pulsedb:append([{<<"x">>, 3, 5, Tags1}], DB2),
+  
+  {ok, DB4} = pulsedb:append([{<<"x">>, 1, 1, Tags2}], DB3),
+  {ok, DB5} = pulsedb:append([{<<"x">>, 2, 3, Tags2}], DB4),
+  {ok, DB6} = pulsedb:append([{<<"x">>, 3, 1, Tags2}], DB5),
+  
+  pulsedb:close(DB6),
+  exit(Tracker, normal),
+  
+  {ok, [{1,1},{2,1},{3,5}], _} = pulsedb:read(<<"x{a=1,from=1,to=3}">>, DB),
+  {ok, [{1,1},{2,3},{3,1}], _} = pulsedb:read(<<"x{a=2,from=1,to=3}">>, DB),
+  
+  {ok, [{1,1},{2,2},{3,3}], _} = pulsedb:read(<<"avg:x{from=1,to=3}">>, DB),
+  {ok, [{1,1},{2,3},{3,5}], _} = pulsedb:read(<<"max:x{from=1,to=3}">>, DB).
 
 
