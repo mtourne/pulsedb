@@ -1,5 +1,5 @@
 -module(pulsedb_sharded).
--export([open/2, append/2, read/3, close/1, sync/1]).
+-export([open/2, append/2, read/3, close/1, sync/1, info/1]).
 
 -record(sharded_db, {
   storage = pulsedb_sharded,
@@ -112,6 +112,15 @@ append({Name,UTC,Value,Tags}, #sharded_db{tracker=Tracker, shard_tag = ShardTag,
   end,
   
   {ok, State#sharded_db{partitions_append = Partitions2}}.
+
+
+info(#sharded_db{path=DBPath, options=Options}) ->
+  Shards = filelib:wildcard("*", binary_to_list(DBPath)),
+  Partitions0 = [open_partition(Shard, DBPath, Options) || Shard <- Shards],
+  Partitions = proplists:get_all_values(ok, Partitions0),
+  Infos = lists:concat([pulsedb:info(Partition) || Partition <- Partitions]),
+  Sources = lists:concat(proplists:get_all_values(sources, Infos)),
+  [{sources, lists:usort(Sources)}].
 
 
 sync(#sharded_db{partitions_append=Partitions}) ->

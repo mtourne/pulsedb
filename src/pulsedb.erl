@@ -17,6 +17,9 @@
 
 
 -spec open(Path::file:filename()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
+open(seconds) -> {ok, seconds};
+open(minutes) -> {ok, minutes};
+
 open(Path) ->
   open(Path, []).
 
@@ -85,6 +88,8 @@ validate({Name,UTC,Value,Tags} = Tick) ->
 
 
 -spec close(pulsedb:db()) -> {ok, pulsedb:db()}.
+close(seconds) -> ok;
+close(minutes) -> ok;
 close(DB) ->
   if
     is_pid(DB) -> pulsedb_worker:stop(DB);
@@ -194,6 +199,9 @@ stop_collector(Name) ->
 info(DB) when is_tuple(DB) ->
   (element(2,DB)):info(DB);
 
+info(DB) when DB == seconds orelse DB == minutes ->
+  pulsedb_memory:info(DB);
+
 info(Atom) when is_atom(Atom) ->
   pulsedb_worker:info(Atom);
 
@@ -225,5 +233,13 @@ current_minute() ->
   Second = Mega*1000000 + Sec,
   Delay = (90 - (Second rem 60))*1000 + Milli,
   {Second, Delay}.
+
+current_hour() ->
+  {Mega, Sec, Micro} = os:timestamp(),
+  Milli = Micro div 1000,
+  Second = Mega*1000000 + Sec,
+  Delay = (3900 - (Second rem 3600))*1000 + Milli,
+  {Second, Delay}.
+
 
 

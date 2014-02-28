@@ -10,6 +10,7 @@
 
 -export([subscribe/2, unsubscribe/2]).
 -export([replicate/2]).
+-export([info/1]).
 
 
 
@@ -26,18 +27,15 @@ replicate(DB, Pid) ->
 
 append(Ticks, DB) when is_list(Ticks) ->
   [append0(Tick, DB) || Tick <- Ticks],
-  ok;
+  {ok, DB};
 
 append(Tick, DB) when is_tuple(Tick) ->
   append0(Tick, DB),
-  ok.
+  {ok, DB}.
 
 
 append0({Name,UTC,Value,Tags}, DB) ->
-  Table = case DB of
-    seconds -> pulsedb_seconds_data;
-    minutes -> pulsedb_minutes_data
-  end,
+  Table = table(DB),
   Metric = cached_metric_name(Name,Tags),
   ets:insert_new(Table, {{Metric,UTC}, Value}),
   Pulse = {pulse,DB,Name,UTC,Value,Tags},
@@ -63,16 +61,8 @@ read(Name, Query, DB) when DB == seconds orelse DB == minutes ->
 
   Metrics = [M || {{N,T},M} <- ets:tab2list(pulsedb_metric_names), N == Name andalso pulsedb_disk:metric_fits_query(Tags,T)],
 
-  Table = case DB of
-    seconds -> pulsedb_seconds_data;
-    minutes -> pulsedb_minutes_data
-  end,
-
-  Step = case DB of
-    seconds -> 1;
-    minutes -> 60
-  end,
-
+  Table = table(DB),
+  Step = step(DB),
 
   {Now,_} = pulsedb:current_second(),
   From_ = case lists:keyfind(from, 1, Query) of
@@ -133,9 +123,16 @@ merge_seconds_data(Metrics, UTC) when UTC rem 60 == 0 ->
 
 
 
+info(_) ->
+  [{sources, lists:usort([Q || {Q, _} <- ets:tab2list(pulsedb_metric_names)])}].
+  
+table(seconds) -> pulsedb_seconds_data;
+table(minutes) -> pulsedb_minutes_data.
 
-
-
+step(seconds) -> 1;
+step(minutes) -> 60.
+  
+  
 
 subscribe(Pid, Query) ->
   gen_server:call(?MODULE, {subscribe, Pid, Query}).

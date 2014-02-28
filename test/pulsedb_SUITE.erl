@@ -746,8 +746,16 @@ sharding(_) ->
   {ok, DB5} = pulsedb:append([{<<"x">>, 2, 3, Tags2}], DB4),
   {ok, DB6} = pulsedb:append([{<<"x">>, 3, 1, Tags2}], DB5),
   
-  pulsedb:close(DB6),
+  {ok, DB7} = pulsedb:append([{<<"y">>, 1, 1, Tags2}], DB6),
+  {ok, DB8} = pulsedb:append([{<<"y">>, 2, 1, Tags2}], DB7),
+  {ok, DB9} = pulsedb:append([{<<"y">>, 3, 1, Tags2}], DB8),
+  
+  pulsedb:close(DB9),
   exit(Tracker, normal),
+  
+  [{sources, [{<<"x">>, [{<<"a">>, <<"1">>}]}, 
+              {<<"x">>, [{<<"a">>, <<"2">>}]},
+              {<<"y">>, [{<<"a">>, <<"2">>}]}]}] = pulsedb:info(DB),
   
   {ok, [{1,1},{2,1},{3,5}], _} = pulsedb:read(<<"x{a=1,from=1,to=3}">>, DB),
   {ok, [{1,1},{2,3},{3,1}], _} = pulsedb:read(<<"x{a=2,from=1,to=3}">>, DB),
