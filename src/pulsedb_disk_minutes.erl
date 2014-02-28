@@ -6,6 +6,7 @@
 -export([chunk_number/2, tick_number/2]).
 -export([block_path/1, parse_date/1]).
 -export([block_start_utc/2, block_end_utc/2]).
+-export([last_day/1]).
 
 %%%%%%%%%%%%%%%%%%%%%%
 % INTERFACE FUNCTIONS
@@ -94,3 +95,43 @@ date_utc({Y,M,D}) when is_integer(Y),is_integer(M),is_integer(D) ->
 chunk_start_utc(UTC) ->
   {Date,_} = pulsedb_time:date_time(UTC),
   date_utc(Date).
+
+
+
+last_folder(F, Path, Length) when is_number(Length) ->
+  case prim_file:list_dir(F, Path) of
+    {ok, List} ->
+      case lists:reverse(lists:sort([Y || Y <- List, length(Y) == Length])) of
+        [] -> undefined;
+        [Y|_] -> Y
+      end;
+    _ ->
+      undefined
+  end;
+
+last_folder(F, Path, Name) ->
+  case prim_file:list_dir(F, Path) of
+    {ok, List} ->
+      case [Y || Y <- List, Y == Name] of
+        [] -> undefined;
+        [Y|_] -> Y
+      end;
+    _ ->
+      undefined
+  end.
+
+
+last_day(Path) ->
+  {ok, F} = prim_file:start(),
+  Val = try last_day0(F, Path)
+  catch
+    throw:_ -> undefined
+  end,
+  prim_file:stop(F),
+  Val.
+
+last_day0(F, Path) ->
+  (Year = last_folder(F, Path, 4)) =/= undefined orelse throw(undefined),
+  (Month = last_folder(F, filename:join(Path,Year), 2)) =/= undefined orelse throw(undefined),
+  (Day = last_folder(F, filename:join([Path,Year,Month]), "minutes")) =/= undefined orelse throw(undefined),
+  filename:join([Path,Year,Month,Day]).

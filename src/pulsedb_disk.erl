@@ -45,6 +45,7 @@
 -callback block_start_utc(UTC :: utc(), Config :: storage_config()) -> FirstBlockUTC :: utc().
 -callback block_end_utc  (UTC :: utc(), Config :: storage_config()) -> LastBlockUTC :: utc().
 
+-callback last_day(Path :: file:filename()) -> Path :: file:filename()|undefined.
 
 
 
@@ -353,40 +354,11 @@ info(#disk_db{sources = Sources}) when is_list(Sources) ->
   Src = lists:sort([{Name,lists:sort(Tags)} || #source{original_name = Name, original_tags = Tags} <- Sources]),
   [{sources,Src}];
 
-info(#disk_db{path = Path, config=Config} = DB) ->
-  case last_day(Path) of
+info(#disk_db{path = Path, config=#storage_config{partition_module=Partition}=Config} = DB) ->
+  case Partition:last_day(Path) of
     undefined -> [];
     DayPath -> info(DB#disk_db{sources = decode_config(read_file(filename:join(DayPath,config_v4)), Config)})
   end.
-
-
-last_folder(F, Path, Length) ->
-  case prim_file:list_dir(F, Path) of
-    {ok, List} ->
-      case lists:reverse(lists:sort([Y || Y <- List, length(Y) == Length])) of
-        [] -> undefined;
-        [Y|_] -> Y
-      end;
-    _ ->
-      undefined
-  end.
-
-last_day(Path) ->
-  {ok, F} = prim_file:start(),
-  Val = try last_day0(F, Path)
-  catch
-    throw:_ -> undefined
-  end,
-  prim_file:stop(F),
-  Val.
-
-last_day0(F, Path) ->
-  (Year = last_folder(F, Path, 4)) =/= undefined orelse throw(undefined),
-  (Month = last_folder(F, filename:join(Path,Year), 2)) =/= undefined orelse throw(undefined),
-  (Day = last_folder(F, filename:join([Path,Year,Month]), 2)) =/= undefined orelse throw(undefined),
-  filename:join([Path,Year,Month,Day]).
-
-
 
 
 

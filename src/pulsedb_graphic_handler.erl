@@ -188,12 +188,12 @@ websocket_terminate(Reason, _Req, #ws_state{ip = Ip}) ->
 %%%%%%%%%
 % BACKEND
 %%%%%%%%%
-pulse_subscribe(Title, Queries, #ws_state{db = DB} = State, Opts) ->
+pulse_subscribe(Title, Queries, #ws_state{db = DBSpec} = State, Opts) ->
+  
   {History, PulseTokens, LastUTCs1} = lists:unzip3(
   [begin
-    {Name, QueryRealtime, QueryHistory} = make_queries(Query, Opts),
-
-
+    {Name, Resolution, QueryRealtime, QueryHistory} = make_queries(Query, Opts),
+    {ok, DB} = open_db(DBSpec, Resolution),
     {ok,History1,_} = pulsedb:read(QueryHistory, DB),
     HistoryData = [[T*1000, V] || {T, V} <- History1],
 
@@ -222,9 +222,10 @@ pulse_subscribe(Title, Queries, #ws_state{db = DB} = State, Opts) ->
   {ok, Reply, State#ws_state{pulses=PulseTokens, last_utc = LastUTCs}}.
 
 
-pulse_history(Title, Queries, #page_state{db=DB}, Opts) ->
+pulse_history(Title, Queries, #page_state{db=DBSpec}, Opts) ->
   History = [begin
-     {Name, _, QueryHistory} = make_queries(Query, Opts),
+     {Name, Resolution, _, QueryHistory} = make_queries(Query, Opts),
+     {ok, DB} = open_db(DBSpec, Resolution),
      {ok,History1,_} = pulsedb:read(QueryHistory, DB),
      HistoryData = [[T*1000, V] || {T, V} <- History1],
      [{name,Name},{data, HistoryData}]
@@ -296,8 +297,16 @@ make_queries(Query0, Opts) ->
   QueryRealtime = pulsedb_query:remove_tag([from, to], Q2),
   QueryHistory = pulsedb_query:set_range(From, To, Q2),
 
+  Resolution = 
+  case Step of
+    S when (S rem 3600) == 0 -> hours;
+    S when (S rem 60) == 0 -> minutes;
+    _ -> seconds
+  end,
+  
   Name = pulsedb_query:remove_tag([<<"account">>], QueryRealtime),
-  {pulsedb_query:render(Name),
+  {pulsedb_query:render(Name), 
+   Resolution,
    pulsedb_query:render(QueryRealtime),
    pulsedb_query:render(QueryHistory)}.
 
@@ -358,3 +367,10 @@ decrypt_embed(Embed, {auth,AuthModule,AuthArgs}) ->
 
 decrypt_embed(Embed, false) ->
   {ok, <<"Graphic">>, [Embed], true}.
+
+
+open_db({DB, Opts}, Resolution) ->
+  pulsedb:open(DB, [{resolution,Resolution}|Opts]);
+  
+open_db(DB, Resolution) ->
+  pulsedb:open(undefined, [{url, DB}, {resolution, Resolution}]).

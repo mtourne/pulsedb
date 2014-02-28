@@ -99,7 +99,7 @@ upgrade0(Req, Env, _Mod, Args) ->
   {ok, DB} = if
     is_atom(Tracker) andalso size(Account) > 0 andalso DBPath =/= undefined ->
       RealPath = iolist_to_binary(["file://", DBPath, "/", Account]),
-      Spec = {Account, {pulsedb_worker, start_link, [undefined, [{url,RealPath},{timeout,120*1000}]]}, temporary, 200, worker, []},
+      Spec = {Account, {pulsedb_worker, start_link, [undefined, [{url,RealPath},{timeout,120*1000}, {resolutions, [seconds, minutes]}]]}, temporary, 200, worker, []},
       gen_tracker:find_or_open(Tracker, Spec);
     ProvidedDb =/= undefined ->
       {ok, ProvidedDb};

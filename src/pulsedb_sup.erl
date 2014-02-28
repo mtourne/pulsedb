@@ -14,7 +14,6 @@ start_collector(Name, Module, Args, Options) ->
   end.
 
 
-
 stop() ->
   erlang:exit(erlang:whereis(?MODULE), shutdown).
 
