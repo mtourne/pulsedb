@@ -1,7 +1,8 @@
 -module(pulsedb_query).
 -export([parse/1,render/1]).
+-export([name/1, set_name/2]).
 -export([tag/2, remove_tag/2, add_tag/2]).
--export([set_range/3, downsampler_step/1, set_step/2]).
+-export([set_range/3, downsampler/1, downsampler_step/1, set_step/2]).
 
 -record(query, {
   aggregator,
@@ -15,6 +16,8 @@ parse(Query) ->
   #query{aggregator=A, downsampler=D, name=N, tags=lists:sort(T)}.
 
 
+render(undefined) -> 
+  undefined;
 
 render(#query{aggregator=Aggregator,
               downsampler=Downsampler,
@@ -35,6 +38,13 @@ render(#query{aggregator=Aggregator,
   iolist_to_binary(Parts).
 
 
+name(#query{name=Name}) -> 
+  Name.
+
+set_name(Name, #query{}=Q) ->
+  Q#query{name=Name}.
+
+
 set_range(From0, To0, #query{}=Q) when is_number(From0), is_number(To0) ->
   Step = downsampler_step(Q),
   case Step of
@@ -49,6 +59,11 @@ set_range(From0, To0, #query{}=Q) when is_number(From0), is_number(To0) ->
       add_tag([{from, From}, {to, To}], Q)
   end.
 
+downsampler(#query{downsampler=Downsampler}) ->
+  case Downsampler of
+    {_,DS} -> DS;
+    _ -> undefined
+  end.
 
 downsampler_step(#query{downsampler=Downsampler}) ->
   case Downsampler of

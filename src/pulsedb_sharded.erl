@@ -16,7 +16,6 @@ open(DBPath, Options) when is_list(DBPath) ->
 open(<<"sharded://", DBPath/binary>>, Options) ->
   open(DBPath, Options);
 open(DBPath, Options) when is_binary(DBPath) ->
-  lager:info("OPEN ~p", [{DBPath, Options}]),
   ShardTag = proplists:get_value(shard_tag, Options, <<"account">>),
   Tracker = proplists:get_value(tracker, Options),
   Options1 = proplists:delete(sharded, Options),

@@ -93,7 +93,7 @@ upgrade0(Req, Env, _Mod, Args) ->
 
   Tracker = proplists:get_value(tracker, Args),
   Account = proplists:get_value(<<"account">>, UserTags),
-  ProvidedDb = proplists:get_value(db, Args),
+  DBSpec = proplists:get_value(db, Args),
   DBPath = proplists:get_value(path,Args),
 
   {ok, DB} = if
@@ -101,8 +101,11 @@ upgrade0(Req, Env, _Mod, Args) ->
       RealPath = iolist_to_binary(["file://", DBPath, "/", Account]),
       Spec = {Account, {pulsedb_worker, start_link, [undefined, [{url,RealPath},{timeout,120*1000}, {resolutions, [seconds, minutes]}]]}, temporary, 200, worker, []},
       gen_tracker:find_or_open(Tracker, Spec);
-    ProvidedDb =/= undefined ->
-      {ok, ProvidedDb};
+    DBSpec =/= undefined ->
+      case DBSpec of
+        {DBName, Opts} -> pulsedb:open(DBName, Opts);
+        Other -> pulsedb:open(Other)
+      end;
     true ->
       {ok, _} = cowboy_req:reply(501, [], "Database not configured\n", Req6),
       exit(normal)

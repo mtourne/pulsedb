@@ -95,19 +95,13 @@ start() ->
   end,
   
   
-  DBPath = case application:get_env(pulsedb, path) of
-    {ok, Path_} -> {ok, Path_};
-    _ -> undefined
-  end,
-  
-  NetpushDB = case DBPath of
-    {ok, P_} -> [{path,P_}];
-    _ -> []
-  end,
-  
-  ReadDB = case DBPath of
+  PulsesDB = case application:get_env(pulsedb, path) of
     {ok, Path} ->
-      [{db, {undefined, [{url,"sharded://"++Path}]}}];
+      [{db, {undefined, [{url,"sharded://"++Path},
+                         {shard_tag, <<"account">>},
+                         {tracker, pulsedb_shards},
+                         {timeout,120*1000}, 
+                         {resolutions, [seconds, minutes]}]}}];
     _ ->
       []
   end,
@@ -120,8 +114,8 @@ start() ->
 
   Dispatch = [{'_', [
     {"/api/v1/status", pulsedb_netpush_handler, [status]},
-    {"/api/v1/pulse_push", pulsedb_netpush_handler, [{tracker, pulsedb_shards}] ++ Auth ++ NetpushDB},
-    {"/embed/[...]", pulsedb_graphic_handler, ReadDB ++ EmbedResolver ++ Auth},
+    {"/api/v1/pulse_push", pulsedb_netpush_handler, PulsesDB ++ Auth},
+    {"/embed/[...]", pulsedb_graphic_handler, PulsesDB ++ EmbedResolver ++ Auth},
     {"/pages/points/[...]", pulsedb_points_handler, [] ++ Superuser},
     {"/js/[...]", cowboy_static, StaticDir}
   ]}],

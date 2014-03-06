@@ -189,8 +189,7 @@ websocket_terminate(Reason, _Req, #ws_state{ip = Ip}) ->
 % BACKEND
 %%%%%%%%%
 pulse_subscribe(Title, Queries, #ws_state{db = DBSpec} = State, Opts) ->
-  
-  {History, PulseTokens, LastUTCs1} = lists:unzip3(
+{History, PulseTokens, LastUTCs1} = lists:unzip3(
   [begin
     {Name, Resolution, QueryRealtime, QueryHistory} = make_queries(Query, Opts),
     {ok, DB} = open_db(DBSpec, Resolution),
@@ -198,27 +197,29 @@ pulse_subscribe(Title, Queries, #ws_state{db = DBSpec} = State, Opts) ->
     HistoryData = [[T*1000, V] || {T, V} <- History1],
 
     Token = make_ref(),
-    pulsedb:subscribe(QueryRealtime, Token),
-    erlang:garbage_collect(self()),
-    lager:info("Subscribed websocket ~p to pulse ~s", [get(name), QueryRealtime]),
-
     Link = {Name, Token},
+
+    case QueryRealtime of
+      undefined -> ok;
+      _ ->
+      pulsedb:subscribe(QueryRealtime, Token),
+      lager:info("Subscribed websocket ~p to pulse ~s", [get(name), QueryRealtime])
+    end,
+    erlang:garbage_collect(self()),
+
     History2 = [{name,Name},{data, HistoryData}],
 
     LastUTC = case History1 of
       [] -> undefined;
       _ -> {Token, element(1,lists:last(History1))}
     end,
-     {History2, Link, LastUTC}
-    end
-   || Query <- Queries]),
+    {History2, Link, LastUTC}
+  end
+  || Query <- Queries]),
 
 
   LastUTCs = [L || L <- LastUTCs1, is_tuple(L)],
-  Config = [
-    {title, Title}
-  ],
-  Reply = [{init, true}, {options, Config}, {data, History}],
+  Reply = [{init, true}, {options, [{title, Title}]}, {data, History}],
   {ok, Reply, State#ws_state{pulses=PulseTokens, last_utc = LastUTCs}}.
 
 
@@ -288,23 +289,32 @@ make_queries(Query0, Opts) ->
   To   = Now - 4,
   From = To - Step * 60,
 
-  Q2 =
-  if
+  Q2 = if
     Step > 1 -> pulsedb_query:set_step(Step, Q1);
     true -> Q1
   end,
 
-  QueryRealtime = pulsedb_query:remove_tag([from, to], Q2),
-  QueryHistory = pulsedb_query:set_range(From, To, Q2),
-
-  Resolution = 
-  case Step of
-    S when (S rem 3600) == 0 -> hours;
+  Resolution = case Step of
+  %  S when (S rem 3600) == 0 -> hours;
     S when (S rem 60) == 0 -> minutes;
     _ -> seconds
   end,
   
-  Name = pulsedb_query:remove_tag([<<"account">>], QueryRealtime),
+  QueryRealtime0 = pulsedb_query:remove_tag([from, to], Q2),
+  QueryHistory0 = pulsedb_query:set_range(From, To, Q2),
+
+  {QueryRealtime, QueryHistory} = 
+  case Resolution of
+    seconds -> 
+      {QueryRealtime0, QueryHistory0};
+    _ ->
+      DS = pulsedb_query:downsampler(Q2),
+      OrigName = pulsedb_query:name(Q2),
+      NewName = iolist_to_binary([DS, "-", OrigName]),
+      {undefined, pulsedb_query:set_name(NewName, QueryHistory0)}
+  end,
+
+  Name = pulsedb_query:remove_tag([<<"account">>], QueryRealtime0),
   {pulsedb_query:render(Name), 
    Resolution,
    pulsedb_query:render(QueryRealtime),
