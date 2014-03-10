@@ -10,7 +10,7 @@
 -export([info/1, parse_query/1]).
 
 -export([collect/3, collect/4, stop_collector/1]).
--export([current_second/0, current_minute/0]).
+-export([current_second/0, current_minute/0, current_hour/0]).
 
 -export([subscribe/2, unsubscribe/1]).
 -export([replicate/1]).

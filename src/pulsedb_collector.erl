@@ -108,28 +108,20 @@ handle_call(Call, _, #collect{} = C) ->
 
 
 
-handle_info(collect, #collect{state = State, copy_to = Copy,
-  collect_timer = OldTimer, module = Module, known_metrics = KnownMetrics} = Flow) ->
+handle_info(collect, #collect{collect_timer = OldTimer, name = Name} = Flow) ->
   erlang:cancel_timer(OldTimer),
   {UTC, CollectDelay} = pulsedb:current_second(),
 
-  {reply, Values, State1} = Module:pulse_collect(State),
-  Ticks = [{to_b(Name),UTC,Value,[{to_b(K),to_b(V)} || {K,V} <- Tags]} || {Name,Value,Tags} <- Values],
-
-  pulsedb_memory:append(Ticks, seconds),
-  case Copy of
-    undefined -> ok;
-    _ -> pulsedb:append(Ticks, Copy)
+  Flow1 = try collect(Flow, UTC)
+  catch
+    C:E ->
+      ST = erlang:get_stacktrace(),
+      lager:info("Failed to collect pulse ~s: ~p:~p\n~p", [Name, C, E, ST]),
+      Flow
   end,
 
-  Metrics = lists:foldl(fun({Name,_,_,Tags}, List) ->
-    case lists:keyfind({Name,Tags},1,List) of
-      false -> [{{Name,Tags}, pulsedb_disk:metric_name(Name,Tags)}|List];
-      _ -> List
-    end
-  end, KnownMetrics, Ticks),
   CollectTimer = erlang:send_after(CollectDelay, self(), collect),
-  {noreply, Flow#collect{collect_timer = CollectTimer, state = State1, known_metrics = Metrics}};
+  {noreply, Flow1#collect{collect_timer = CollectTimer}};
 
 
 
@@ -162,6 +154,24 @@ terminate(_,_) ->
 
 
 
+
+collect(#collect{state = State, copy_to = Copy, module = Module, known_metrics = KnownMetrics} = Flow, UTC) ->
+  {reply, Values, State1} = Module:pulse_collect(State),
+  Ticks = [{to_b(Name),UTC,Value,[{to_b(K),to_b(V)} || {K,V} <- Tags]} || {Name,Value,Tags} <- Values],
+
+  pulsedb_memory:append(Ticks, seconds),
+  case Copy of
+    undefined -> ok;
+    _ -> pulsedb:append(Ticks, Copy)
+  end,
+
+  Metrics = lists:foldl(fun({Name,_,_,Tags}, List) ->
+    case lists:keyfind({Name,Tags},1,List) of
+      false -> [{{Name,Tags}, pulsedb_disk:metric_name(Name,Tags)}|List];
+      _ -> List
+    end
+  end, KnownMetrics, Ticks),
+  Flow#collect{state = State1, known_metrics = Metrics}.
 
 
 
