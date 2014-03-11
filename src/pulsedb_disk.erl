@@ -54,6 +54,8 @@
 -export([delete_older/2]).
 -export([metric_name/2, metric_fits_query/2]).
 
+-export([read_all/4]).
+
 
 -spec open(Path::file:filename(), Options::list()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
 open(Path, Options) when is_list(Path) ->
@@ -379,6 +381,30 @@ read(Name, Query, #disk_db{path = Path, date = Date, config = #storage_config{pa
       Error
   end.
 
+% -> [{{Name, Tags}, Ticks}]
+read_all(From, To, Opts, #disk_db{config = #storage_config{partition_module=Partition}=Config} = DB) ->
+  RequiredDates = Partition:required_partitions(From, To, Config),
+  lager:info("READ Start"),
+  Data = 
+  [begin
+     DB1 = open_existing_db(DB#disk_db{date = Date, mode = read}),
+     SourceData = try
+       Info = pulsedb:info(DB1),
+       Sources = proplists:get_value(sources, Info),
+       [begin
+          Query = [{from, From}, {to, To}|Tags]++Opts,
+          {ok, Ticks, _} = read0(Name, Query, DB1),
+          {Source, Ticks}
+          end || {Name, Tags}=Source <- Sources]
+     catch _:_ -> []
+     end,
+     close(DB1),
+     SourceData
+   end
+   || Date <- RequiredDates],
+  lager:info("READ End"),
+  {ok, lists:concat(Data), DB}.
+
 
 
 load_ticks([], _Name, _Query, DB) ->
@@ -416,16 +442,16 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
                                                      chunk_bits=ChunkBits,
                                                      utc_step = UTCStep,
                                                      partition_module=Partition} = Config} = DB) when Date =/= undefined ->
-  Tags = [{K,V} || {K,V} <- Query, is_binary(K)],
 
+  Tags = [{K,V} || {K,V} <- Query, is_binary(K)],
   ReadSources = select_sources(Name, Tags, Sources),
 
   DateUTC = Partition:parse_date(Date),
   From = proplists:get_value(from,Query, Partition:block_start_utc(DateUTC, Config)),
   To = proplists:get_value(to,Query, Partition:block_end_utc(DateUTC, Config)),
-
+  
   HrsToRead = Partition:required_chunks(From, To, DateUTC, Config),
-
+  
   Ticks1 = lists:flatmap(fun({H,TickOffset,Limit}) ->
     Ticks2 = lists:flatmap(fun(#source{block_offsets = Offsets}) ->
       case lists:keyfind(H, 1, Offsets) of

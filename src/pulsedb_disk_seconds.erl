@@ -34,11 +34,15 @@ required_chunks(From, To, Date, #storage_config{ticks_per_chunk = NTicks, chunks
        F == H -> (From - H*NTicks) rem NTicks;
        true -> 0 end,
      
-     Length = if
-       Offset > 0     -> NTicks - Offset;
+     Length0 = if
        T == F, T == H -> To - From + 1;
        T == H         -> To - H*NTicks + 1;
        true           -> NTicks end,
+     
+     % length correction
+     Length = if 
+       Offset + Length0 > NTicks -> NTicks - Offset;
+       true                      -> Length0 end,
      
      {H rem NChunks, Offset, Length}
      end || H <- lists:seq(F, T), H div NChunks == DateStartD].
