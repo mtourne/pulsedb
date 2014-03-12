@@ -133,30 +133,27 @@ append_and_read(_) ->
 
   {ok, ReadDB1} = pulsedb:open("test/v3/pulse_rw"),
 
-  {ok, [
-    {120,5},
-    {130,10},
-    {140,3},
-    {4000121,5},
-    {4000122,10},
-    {4000123,3}
-  ], ReadDB2} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1971-02-02"}], ReadDB1),
+  {ok, ResultTicks1, ReadDB2} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1971-02-02"}], ReadDB1),
+  [{120,5},
+   {130,10},
+   {140,3},
+   {4000121,5},
+   {4000122,10},
+   {4000123,3}] = [T || {_,V}=T <- ResultTicks1, V > 0],
 
 
-  {ok, [
-    {120,5},
-    {130,10},
-    {140,3}
-  ], ReadDB3} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], ReadDB2),
+  {ok, ResultTicks2, ReadDB3} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], ReadDB2),
+  [{120,5},
+   {130,10},
+   {140,3}] = [T || {_,V}=T <- ResultTicks2, V > 0],
 
-  {ok, [
-    {120,7},
-    {130,10},
-    {140,3},
-    {4000121,5},
-    {4000122,14},
-    {4000123,3}
-  ], ReadDB4} = pulsedb:read(<<"input">>, [{from, "1970-01-01"},{to,"1971-01-02"}], ReadDB3),
+  {ok, ResultTicks3, ReadDB4} = pulsedb:read(<<"input">>, [{from, "1970-01-01"},{to,"1971-01-02"}], ReadDB3),
+  [{120,7},
+   {130,10},
+   {140,3},
+   {4000121,5},
+   {4000122,14},
+   {4000123,3}] = [T || {_,V}=T <- ResultTicks3, V > 0],
 
   % {ok, R1} = pulsedb:open("test/v2/pulse_rw"),
   % {ok, Ticks2, R2} = pulsedb:read([{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-04"}], R1),
@@ -184,55 +181,48 @@ worker_append_and_read(_) ->
   ],
   pulsedb:append(Ticks2, DB1),
 
-  {ok, [
-    {120,6},
-    {130,10},
-    {140,3},
-    {4000121,5},
-    {4000122,10},
-    {4000123,3}
-  ], _} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1971-02-02"}], DB1),
+  {ok, T1, _} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1971-02-02"}], DB1),
+  [{120,6},
+   {130,10},
+   {140,3},
+   {4000121,5},
+   {4000122,10},
+   {4000123,3}] = [T || {_,V}=T <- T1, V > 0],
 
 
-  {ok, [
-    {120,6},
-    {130,10},
-    {140,3}
-  ], _} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], DB1),
+  {ok, T2, _} = pulsedb:read(<<"input">>, [{name,<<"source1">>}, {from, "1970-01-01"},{to,"1970-01-02"}], DB1),
+  [{120,6},
+   {130,10},
+   {140,3}] = [T || {_,V}=T <- T2, V > 0],
 
-  {ok, [
-    {120,8},
+  {ok, T3, _} = pulsedb:read(<<"input">>, [{from, "1970-01-01"},{to,"1971-01-02"}], DB1),
+  [{120,8},
     {130,10},
     {140,3},
     {4000121,5},
     {4000122,14},
-    {4000123,3}
-  ], _} = pulsedb:read(<<"input">>, [{from, "1970-01-01"},{to,"1971-01-02"}], DB1),
+    {4000123,3}] = [T || {_,V}=T <- T3, V > 0],
 
 
-  {ok, [
-    {120,6},
-    {130,10},
-    {140,3}
-  ], _} = pulsedb:read(<<"sum:input{name=source1,from=1970-01-01,to=1970-01-02}">>, DB1),
+  {ok, T4, _} = pulsedb:read(<<"sum:input{name=source1,from=1970-01-01,to=1970-01-02}">>, DB1),
+  [{120,6},
+   {130,10},
+   {140,3}] = [T || {_,V}=T <- T4, V > 0],
 
-  {ok, [
-    {120,8},
-    {130,10},
-    {140,3}
-  ], _} = pulsedb:read(<<"sum:input{from=1970-01-01,to=1970-01-02}">>, DB1),
+  {ok, T5, _} = pulsedb:read(<<"sum:input{from=1970-01-01,to=1970-01-02}">>, DB1),
+  [{120,8},
+   {130,10},
+   {140,3}] = [T || {_,V}=T <- T5, V > 0],
 
-  {ok, [
-    {120,6},
-    {130,10},
-    {140,3}
-  ], _} = pulsedb:read(<<"max:input{from=1970-01-01,to=1970-01-02}">>, DB1),
+  {ok, T6, _} = pulsedb:read(<<"max:input{from=1970-01-01,to=1970-01-02}">>, DB1),
+  [{120,6},
+   {130,10},
+   {140,3}] = [T || {_,V}=T <- T6, V > 0],
 
-  {ok, [
-    {120,4},
-    {130,10},
-    {140,3}
-  ], _} = pulsedb:read(<<"avg:input{from=1970-01-01,to=1970-01-02}">>, DB1),
+  {ok, T7, _} = pulsedb:read(<<"avg:input{from=1970-01-01,to=1970-01-02}">>, DB1),
+  [{120,4},
+   {130,5},
+   {140,1}] = [T || {_,V}=T <- T7, V > 0],
 
   {ok, [
   ], _} = pulsedb:read(<<"avg:input">>, DB1),
@@ -271,11 +261,11 @@ netpush_append(_) ->
   pulsedb:append(Ticks2, netpush_client),
   pulsedb:sync(netpush_client),
 
-  {ok, [
-    {120,6},
-    {130,10},
-    {140,3}
-  ], _} = pulsedb:read(<<"sum:input{name=source-net1,from=1970-01-01,to=1970-01-02}">>, netpush_db),
+  {ok, T1, _} = pulsedb:read(<<"sum:input{name=source-net1,from=1970-01-01,to=1970-01-02}">>, netpush_db),
+  [{120,6},
+   {130,10},
+   {140,3}] = [T || {_,V}=T <- T1, V > 0],
+
 
 
   % {ok, [
@@ -333,11 +323,10 @@ netpush_ssl_append(_) ->
   pulsedb:sync(netpush_ssl_client),
 
 
-  {ok, [
-    {120,6},
-    {130,10},
-    {140,3}
-  ], _} = pulsedb:read(<<"sum:input{name=source-ssl1,from=1970-01-01,to=1970-01-02}">>, netpush_db),
+  {ok, T1, _} = pulsedb:read(<<"sum:input{name=source-ssl1,from=1970-01-01,to=1970-01-02}">>, netpush_db),
+  [{120,6},
+   {130,10},
+   {140,3}] = [T || {_,V}=T <- T1, V > 0],
 
 
   % {ok, [
@@ -382,7 +371,8 @@ worker_cleanup(_) ->
   ],
   pulsedb:append(Ticks1, worker_cleanup),
 
-  {ok, [{_,5}], _} = pulsedb:read("sum:input{from=0,to=1000}", worker_cleanup),
+  {ok, T1, _} = pulsedb:read("sum:input{from=0,to=1000}", worker_cleanup),
+  [{_,5}] = [T || {_,V}=T <- T1, V > 0],
 
   DB1 ! clean,
   sys:get_state(DB1),
@@ -509,11 +499,19 @@ collector(_) ->
   {ok, Pid} = pulsedb:collect(<<"test_collector">>, ?MODULE, {test1,20}),
   Pid ! collect,
   sys:get_state(Pid),
-  {ok, [{_,20}], _} = pulsedb:read(<<"max:test1">>, seconds),
-  {ok, [{_,20}], _} = pulsedb:read(<<"max:test1{tag1=value1}">>, seconds),
+  {ok, T1, _} = pulsedb:read(<<"max:test1">>, seconds),
+  [{_,20}] = [T || {_,V}=T <- T1, V > 0],
+  
+  {ok, T2, _} = pulsedb:read(<<"max:test1{tag1=value1}">>, seconds),
+  [{_,20}] = [T || {_,V}=T <- T2, V > 0],
+  
 
-  {ok, [{_,20}], _} = pulsedb:read(<<"max:test1">>, memory),
-  {ok, [{_,20}], _} = pulsedb:read(<<"max:test1{tag1=value1}">>, memory),
+  {ok, T3, _} = pulsedb:read(<<"max:test1">>, memory),
+  [{_,20}] = [T || {_,V}=T <- T3, V > 0],
+  
+  {ok, T4, _} = pulsedb:read(<<"max:test1{tag1=value1}">>, memory),
+  [{_,20}] = [T || {_,V}=T <- T4, V > 0],
+  
 
   ok = pulsedb:stop_collector(<<"test_collector">>),
   {ok, [], _} = pulsedb:read(<<"max:test1">>, seconds),
@@ -534,11 +532,19 @@ collector_with_backend(_) ->
   {ok, Pid} = pulsedb:collect(<<"test_collector2">>, ?MODULE, {test2,40}, [{copy, test_pulse_saver1}]),
   Pid ! collect,
   sys:get_state(Pid),
-  {ok, [{_,40}], _} = pulsedb:read(<<"max:test2">>, seconds),
-  {ok, [{_,40}], _} = pulsedb:read(<<"max:test2{tag1=value1}">>, seconds),
-
-  {ok, [{_,40}], _} = pulsedb:read("sum:test2{"++Range++"}", test_pulse_saver1),
-  {ok, [{_,40}], _} = pulsedb:read("sum:test2{tag1=value1,"++Range++"}", test_pulse_saver1),
+  
+  {ok, T1, _} = pulsedb:read(<<"max:test2">>, seconds),
+  [{_,40}] = [T || {_,V}=T <- T1, V > 0],
+  
+  {ok, T2, _} = pulsedb:read(<<"max:test2{tag1=value1}">>, seconds),
+  [{_,40}] = [T || {_,V}=T <- T2, V > 0],
+  
+  
+  {ok, T3, _} = pulsedb:read("sum:test2{"++Range++"}", test_pulse_saver1),
+  [{_,40}] = [T || {_,V}=T <- T3, V > 0],
+  
+  {ok, T4, _} = pulsedb:read("sum:test2{tag1=value1,"++Range++"}", test_pulse_saver1),
+  [{_,40}] = [T || {_,V}=T <- T4, V > 0],
   ok.
 
 
@@ -607,19 +613,19 @@ autohealing(_) ->
 downsampling(_) ->
   {ok, _} = pulsedb:open(test_downsampling, <<"test/v3/downsampling">>),
 
-  pulsedb:append([{<<"ds">>, 10, 4, []}], test_downsampling),
-  pulsedb:append([{<<"ds">>, 12, 6, []}], test_downsampling),
+  pulsedb:append([{<<"ds">>, 10, 400, []}], test_downsampling),
+  pulsedb:append([{<<"ds">>, 12, 600, []}], test_downsampling),
 
-  pulsedb:append([{<<"ds">>, 100, 4, []}], test_downsampling),
-  pulsedb:append([{<<"ds">>, 102, 8, []}], test_downsampling),
-  pulsedb:append([{<<"ds">>, 104, 23, []}], test_downsampling),
+  pulsedb:append([{<<"ds">>, 100, 400, []}], test_downsampling),
+  pulsedb:append([{<<"ds">>, 102, 800, []}], test_downsampling),
+  pulsedb:append([{<<"ds">>, 104, 2300, []}], test_downsampling),
 
-  pulsedb:append([{<<"ds">>, 724, 20, []}], test_downsampling),
-  pulsedb:append([{<<"ds">>, 725, 24, []}], test_downsampling),
+  pulsedb:append([{<<"ds">>, 724, 2000, []}], test_downsampling),
+  pulsedb:append([{<<"ds">>, 725, 2400, []}], test_downsampling),
 
-  {ok, [{0,9},{600,22}], _} = pulsedb:read("sum:10m-avg:ds{from=0,to=1800}", test_downsampling),
-  {ok, [{0,45},{600,44}], _} = pulsedb:read("sum:10m-sum:ds{from=0,to=1800}", test_downsampling),
-  {ok, [{0,23},{600,24}], _} = pulsedb:read("sum:10m-max:ds{from=0,to=1800}", test_downsampling),
+  {ok, [{0,7},{600,7}|_], _} = pulsedb:read("sum:10m-avg:ds{from=0,to=1800}", test_downsampling),
+  {ok, [{0,4500},{600,4400}|_], _} = pulsedb:read("sum:10m-sum:ds{from=0,to=1800}", test_downsampling),
+  {ok, [{0,2300},{600,2400}|_], _} = pulsedb:read("sum:10m-max:ds{from=0,to=1800}", test_downsampling),
   ok.
 
 
@@ -679,10 +685,11 @@ required_dates(_) ->
   {ok, DB2} = pulsedb:append(TicksToday, DB1),
 
 
-  {ok, [{1390224618,  1},
-        {1390224619,  2},
-        {1390292577,  3},
-        {1390292578,  4}], _} = pulsedb:read(<<"input{from=1390224618,to=1390292579}">>, DB2).
+  {ok, T1, _} = pulsedb:read(<<"input{from=1390224618,to=1390292579}">>, DB2),
+  [{1390224618,  1},
+   {1390224619,  2},
+   {1390292577,  3},
+   {1390292578,  4}] = [T || {_,V}=T <- T1, V > 0].
 
 
 

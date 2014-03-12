@@ -458,7 +458,9 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
         {ChunkN, Offset} ->
           case file:pread(DataFd, Offset bsl ChunkBits + TickSize*TickOffset, TickSize*Limit) of
             {ok, Bin} ->
-              pulsedb_data:unpack_ticks(Bin, DateUTC + (ChunkN*NTicks + TickOffset)*UTCStep, UTCStep);
+              StartUTC = DateUTC + (ChunkN*NTicks + TickOffset)*UTCStep,
+              RawTicks = pulsedb_data:unpack_ticks(Bin, StartUTC, UTCStep),
+              pulsedb_data:interpolate(StartUTC, Limit, UTCStep, RawTicks);
             _ ->
               []
           end;
