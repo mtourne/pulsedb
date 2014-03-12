@@ -31,7 +31,8 @@ groups() ->
     info,
     required_dates,
     query_mutation,
-    sharding
+    sharding,
+    aggregation
   ]}].
 
 
@@ -552,14 +553,14 @@ collector_to_minute(_) ->
   {Now,_} = pulsedb:current_second(),
   Minute = (Now div 60)*60,
 
-  pulsedb:append([{<<"mmm">>, Minute - 10, 2, [{name, <<"src1">>}]}], seconds),
-  pulsedb:append([{<<"mmm">>, Minute - 8, 10, [{name, <<"src1">>}]}], seconds),
-  {ok, [{_,2},{_,10}], _} = pulsedb:read("mmm{from="++integer_to_list(Minute-240)++",to="++integer_to_list(Minute+40)++"}", seconds),
-  {ok, [{_,2},{_,10}], _} = pulsedb:read("mmm{from="++integer_to_list(Minute-240)++",to="++integer_to_list(Minute+40)++"}", memory),
+  pulsedb:append([{<<"mmm">>, Minute - 10, 200, [{name, <<"src1">>}]}], seconds),
+  pulsedb:append([{<<"mmm">>, Minute - 8, 1000, [{name, <<"src1">>}]}], seconds),
+  {ok, [{_,200},{_,1000}], _} = pulsedb:read("mmm{from="++integer_to_list(Minute-240)++",to="++integer_to_list(Minute+40)++"}", seconds),
+  {ok, [{_,200},{_,1000}], _} = pulsedb:read("mmm{from="++integer_to_list(Minute-240)++",to="++integer_to_list(Minute+40)++"}", memory),
 
   pulsedb_memory:merge_seconds_data([{<<"mmm">>,[{<<"name">>,<<"src1">>}]}], Minute),
-  {ok, [{_,6}], _} = pulsedb:read("mmm{from="++integer_to_list(Minute-240)++",to="++integer_to_list(Minute+40)++"}", minutes),
-  {ok, [{_,6}], _} = pulsedb:read("sum:1m-avg:mmm{from="++integer_to_list(Minute-240)++",to="++integer_to_list(Minute+40)++"}", memory),
+  {ok, [{_,20}], _} = pulsedb:read("mmm{from="++integer_to_list(Minute-240)++",to="++integer_to_list(Minute+40)++"}", minutes),
+  {ok, [{_,20}], _} = pulsedb:read("sum:1m-avg:mmm{from="++integer_to_list(Minute-240)++",to="++integer_to_list(Minute+40)++"}", memory),
 
   ok.
 
@@ -771,3 +772,31 @@ sharding(_) ->
   {ok, [{1,1},{2,3},{3,5}], _} = pulsedb:read(<<"max:x{from=1,to=3}">>, DB).
 
 
+aggregation(_) ->
+  {ok, DB0} = pulsedb:open(<<"test/aggregation">>),
+  {ok, DBminutes0} = pulsedb:open(undefined, [{url, <<"file://test/aggregation">>}, {resolution, minutes}]),
+
+  Ticks1 = 
+   [
+    {<<"input">>, 1,  100, [{name, <<"source1">>}]},
+    {<<"input">>, 2,  100, [{name, <<"source1">>}]},
+    {<<"input">>, 3,  100, [{name, <<"source1">>}]},
+    {<<"input">>, 4,  300, [{name, <<"source1">>}]},
+    {<<"input">>, 5,  300, [{name, <<"source1">>}]},
+    {<<"input">>, 6,  300, [{name, <<"source1">>}]}],
+  
+  Ticks2 = 
+   [
+    {<<"input">>, 61,  0, [{name, <<"source1">>}]},
+    {<<"input">>, 62,  0, [{name, <<"source1">>}]},
+    {<<"input">>, 63,  0, [{name, <<"source1">>}]},
+    {<<"input">>, 64,  200, [{name, <<"source1">>}]},
+    {<<"input">>, 65,  200, [{name, <<"source1">>}]},
+    {<<"input">>, 66,  200, [{name, <<"source1">>}]}],
+  
+  {ok, DB1} = pulsedb:append(Ticks1++Ticks2, DB0),
+  {ok, DBminutes1} = pulsedb_aggregator:aggregate(minutes, 0, 120, DB0, DBminutes0),
+  pulsedb:close(DBminutes1),
+  
+  {ok, [{0, 20}, {60, 10}|_], _} = pulsedb:read(<<"input">>, [{from, 0},{to, 120}], DBminutes0),
+  {ok, [{0, 300}, {60, 200}|_], _} = pulsedb:read(<<"max-input">>, [{from, 0},{to, 120}], DBminutes0).

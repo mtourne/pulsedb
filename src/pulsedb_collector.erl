@@ -44,17 +44,7 @@ stop(Name) ->
   supervisor:delete_child(pulsedb_collectors, Name),
 
   lists:foreach(fun(M) ->
-    ets:select_delete(pulsedb_seconds_data, ets:fun2ms(fun(Row) when 
-      element(1,element(1,Row)) == M -> true
-    end)),
-
-    ets:select_delete(pulsedb_minutes_data, ets:fun2ms(fun(Row) when 
-      element(1,element(1,Row)) == M  -> true
-    end)),
-
-    ets:select_delete(pulsedb_metric_names, ets:fun2ms(fun({_,M_}) when 
-      M_ == M  -> true
-    end))
+    pulsedb_memory:clean_data(M)
   end, Metrics),
   ok.
 

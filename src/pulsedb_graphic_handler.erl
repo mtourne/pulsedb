@@ -36,12 +36,14 @@
 
 
 init_state(#page_state{}=State, Opts) ->
-  State#page_state{db = proplists:get_value(db, Opts),
+  {_,DBOpts} = proplists:get_value(db, Opts),
+  State#page_state{db = DBOpts,
                    auth = lists:keyfind(auth, 1, Opts),
                    resolver = lists:keyfind(resolver, 1, Opts)};
 
 init_state(#ws_state{}=State, Opts) ->
-  State#ws_state{db = proplists:get_value(db, Opts),
+  {_,DBOpts} = proplists:get_value(db, Opts),
+  State#ws_state{db = DBOpts,
                  auth = lists:keyfind(auth, 1, Opts),
                  resolver = lists:keyfind(resolver, 1, Opts)}.
 
@@ -188,12 +190,11 @@ websocket_terminate(Reason, _Req, #ws_state{ip = Ip}) ->
 %%%%%%%%%
 % BACKEND
 %%%%%%%%%
-pulse_subscribe(Title, Queries, #ws_state{db = DBSpec} = State, Opts) ->
+pulse_subscribe(Title, Queries, #ws_state{db = DB} = State, Opts) ->
 {History, PulseTokens, LastUTCs1} = lists:unzip3(
   [begin
-    {Name, Resolution, QueryRealtime, QueryHistory} = make_queries(Query, Opts),
-    {ok, DB} = open_db(DBSpec, Resolution),
-    {ok,History1,_} = pulsedb:read(QueryHistory, DB),
+    {Name, QueryRealtime, QueryHistory} = make_queries(Query, Opts),
+    {ok,History1} = pulsedb:read_once(QueryHistory, DB),
     HistoryData = [[T*1000, V] || {T, V} <- History1],
 
     Token = make_ref(),
@@ -223,11 +224,10 @@ pulse_subscribe(Title, Queries, #ws_state{db = DBSpec} = State, Opts) ->
   {ok, Reply, State#ws_state{pulses=PulseTokens, last_utc = LastUTCs}}.
 
 
-pulse_history(Title, Queries, #page_state{db=DBSpec}, Opts) ->
+pulse_history(Title, Queries, #page_state{db=DB}, Opts) ->
   History = [begin
-     {Name, Resolution, _, QueryHistory} = make_queries(Query, Opts),
-     {ok, DB} = open_db(DBSpec, Resolution),
-     {ok,History1,_} = pulsedb:read(QueryHistory, DB),
+     {Name, _, QueryHistory} = make_queries(Query, Opts),
+     {ok,History1} = pulsedb:read_once(QueryHistory, DB),
      HistoryData = [[T*1000, V] || {T, V} <- History1],
      [{name,Name},{data, HistoryData}]
   end || Query <- Queries],
@@ -294,29 +294,11 @@ make_queries(Query0, Opts) ->
     true -> Q1
   end,
 
-  Resolution = case Step of
-  %  S when (S rem 3600) == 0 -> hours;
-    S when (S rem 60) == 0 -> minutes;
-    _ -> seconds
-  end,
-  
-  QueryRealtime0 = pulsedb_query:remove_tag([from, to], Q2),
-  QueryHistory0 = pulsedb_query:set_range(From, To, Q2),
+  QueryRealtime = pulsedb_query:remove_tag([from, to], Q2),
+  QueryHistory = pulsedb_query:set_range(From, To, Q2),
 
-  {QueryRealtime, QueryHistory} = 
-  case Resolution of
-    seconds -> 
-      {QueryRealtime0, QueryHistory0};
-    _ ->
-      DS = pulsedb_query:downsampler(Q2),
-      OrigName = pulsedb_query:name(Q2),
-      NewName = iolist_to_binary([DS, "-", OrigName]),
-      {undefined, pulsedb_query:set_name(NewName, QueryHistory0)}
-  end,
-
-  Name = pulsedb_query:remove_tag([<<"account">>], QueryRealtime0),
+  Name = pulsedb_query:remove_tag([<<"account">>], QueryRealtime),
   {pulsedb_query:render(Name), 
-   Resolution,
    pulsedb_query:render(QueryRealtime),
    pulsedb_query:render(QueryHistory)}.
 
@@ -379,8 +361,3 @@ decrypt_embed(Embed, false) ->
   {ok, <<"Graphic">>, [Embed], true}.
 
 
-open_db({DB, Opts}, Resolution) ->
-  pulsedb:open(DB, [{resolution,Resolution}|Opts]);
-  
-open_db(DB, Resolution) ->
-  pulsedb:open(undefined, [{url, DB}, {resolution, Resolution}]).

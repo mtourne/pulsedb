@@ -97,7 +97,10 @@ append({Name,UTC,Value,Tags}, #sharded_db{tracker=Tracker, shard_tag = ShardTag,
   case proplists:get_value(ShardName, Partitions0) of
     undefined ->
       RealPath = partition_path(DBPath, ShardName),
-      Spec = {ShardName, {pulsedb_worker, start_link, [undefined, [{url,RealPath},{timeout,120*1000}|Opts]]}, temporary, 200, worker, []},
+      Args = [undefined, [{url,RealPath},
+                          {timeout,120*1000},
+                          {shard, {ShardTag, ShardName}}|Opts]],
+      Spec = {ShardName, {pulsedb_worker, start_link, Args}, temporary, 200, worker, []},
       {ok, DB_} = gen_tracker:find_or_open(Tracker, Spec),
       {DB_, [Partitions0]};
     DB_ ->

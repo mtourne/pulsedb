@@ -40,14 +40,14 @@ read_and_write_from_memory(_) ->
   T = Now - 120,
 
   pulsedb_memory:append([
-    {<<"input">>, T+0, 10, [{<<"name">>,<<"src1">>}]},
-    {<<"input">>, T+0, 14, [{<<"name">>,<<"src2">>}]},
-    {<<"input">>, T+1, 04, [{<<"name">>,<<"src1">>}]},
-    {<<"input">>, T+1, 08, [{<<"name">>,<<"src2">>}]}
+    {<<"input">>, T+0, 1000, [{<<"name">>,<<"src1">>}]},
+    {<<"input">>, T+0, 1400, [{<<"name">>,<<"src2">>}]},
+    {<<"input">>, T+1, 0400, [{<<"name">>,<<"src1">>}]},
+    {<<"input">>, T+1, 0800, [{<<"name">>,<<"src2">>}]}
   ], seconds),
   {ok, [
-    {_,24},
-    {_,12}
+    {_,2400},
+    {_,1200}
   ], _} = pulsedb:read("sum:input{from="++integer_to_list(T)++",to="++integer_to_list(T+10)++"}", seconds),
 
 
@@ -58,7 +58,7 @@ read_and_write_from_memory(_) ->
   pulsedb_memory:merge_seconds_data([{<<"input">>, [{<<"name">>,<<"src1">>}]}], T1),
 
   {ok, [
-    {_,7}
+    {_,23}
   ], _} = pulsedb:read("sum:input{from="++integer_to_list(T1-120)++",to="++integer_to_list(T1+60)++",name=src1}", minutes),
 
 

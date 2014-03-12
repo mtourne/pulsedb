@@ -444,9 +444,10 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
                                                      partition_module=Partition} = Config} = DB) when Date =/= undefined ->
 
   Tags = [{K,V} || {K,V} <- Query, is_binary(K)],
+  
   ReadSources = select_sources(Name, Tags, Sources),
-
   DateUTC = Partition:parse_date(Date),
+  
   From = proplists:get_value(from,Query, Partition:block_start_utc(DateUTC, Config)),
   To = proplists:get_value(to,Query, Partition:block_end_utc(DateUTC, Config)),
   
@@ -456,11 +457,14 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
     Ticks2 = lists:flatmap(fun(#source{block_offsets = Offsets}) ->
       case lists:keyfind(H, 1, Offsets) of
         {ChunkN, Offset} ->
+          
           case file:pread(DataFd, Offset bsl ChunkBits + TickSize*TickOffset, TickSize*Limit) of
             {ok, Bin} ->
+              
               StartUTC = DateUTC + (ChunkN*NTicks + TickOffset)*UTCStep,
               RawTicks = pulsedb_data:unpack_ticks(Bin, StartUTC, UTCStep),
               pulsedb_data:interpolate(StartUTC, Limit, UTCStep, RawTicks);
+            
             _ ->
               []
           end;
@@ -470,13 +474,15 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
     end, ReadSources),
 
     Ticks3 = lists:sort(Ticks2),
-
     Ticks4 = pulsedb_data:aggregate(proplists:get_value(aggregator,Query), Ticks3),
+
     erlang:garbage_collect(self()),
+                           
     Ticks4
   end, HrsToRead),
   
   Ticks5 = pulsedb_data:downsample(proplists:get_value(downsampler,Query), Ticks1),
+  
   {ok, Ticks5, DB}.
 
 
@@ -498,6 +504,8 @@ select_sources(Name, Tags, [#source{original_name = Name, original_tags = Tags1}
 
 select_sources(Name, Tags, [_|Sources]) ->
   select_sources(Name, Tags, Sources).
+
+
 
 
 

@@ -79,6 +79,6 @@ unpack_ticks(<<0:2, 1:1, Value:13, Rest/binary>>, UTC, Step) -> [{UTC,Value bsl 
 unpack_ticks(<<0:2, 0:1, Value:13, Rest/binary>>, UTC, Step) -> [{UTC,Value bsl 40}|unpack_ticks(Rest, UTC+Step, Step)].
 
 
-interpolate(_UTC, 0, _Step, []) -> [];
+interpolate(_UTC, 0, _Step, _Ticks) -> [];
 interpolate(UTC, Count, Step, [{UTC, Value}|Rest]) -> [{UTC, Value}|interpolate(UTC+Step, Count-1, Step, Rest)];
 interpolate(UTC, Count, Step, Rest)                -> [{UTC, 0}    |interpolate(UTC+Step, Count-1, Step, Rest)].

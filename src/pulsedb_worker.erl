@@ -82,7 +82,8 @@ stop(DB) ->
   clean_timeout,
                  
   seconds_timer,
-  minutes_timer
+  minutes_timer,
+  opts = []
 }).
 
 init([Name, Options0]) ->
@@ -94,7 +95,13 @@ init([Name, Options0]) ->
   Resolutions0 = proplists:get_value(resolutions, Options0, [seconds]),
   Resolutions = lists:usort([seconds|Resolutions0]),
   lager:info("Resolutions ~p", [Resolutions]),
-  Options = proplists:delete(resolutions, Options0),
+  Shard = case proplists:get_value(shard, Options0) of
+    undefined -> [];
+    Val -> [{shard, Val}]
+  end,
+  
+  Options1 = proplists:delete(resolutions, Options0),
+  Options = proplists:delete(account, Options1),
   
   DBs0 = [pulsedb:open(undefined, [{resolution, R}|Options]) || R <- Resolutions],
   DBs1 = lists:zip(Resolutions, DBs0),
@@ -116,7 +123,11 @@ init([Name, Options0]) ->
         undefined -> undefined;
         _ -> erlang:send_after(StopTimeout, self(), stop)
       end,
-      State0 = #worker{db_layers = DBs, clean_timer = CleanTimer, clean_timeout = CleanTimeout, stop_timeout = StopTimeout, stop_timer = StopTimer},
+      
+      State0 = #worker{db_layers = DBs, 
+                       clean_timer = CleanTimer, clean_timeout = CleanTimeout, 
+                       stop_timeout = StopTimeout, stop_timer = StopTimer,
+                       opts = Shard},
       State = init_timers(Resolutions, State0),
       gen_server:enter_loop(?MODULE, [], State)
   end.
@@ -197,32 +208,41 @@ handle_info(clean, #worker{clean_timer = OldTimer, clean_timeout = Timeout, db_l
   {noreply, W#worker{clean_timer = Timer, db_layers = DBs1}};
 
 
-handle_info({aggregate, Resolution}, #worker{seconds_timer = Timer0, db_layers = DBs}=W) ->
+handle_info({aggregate, Resolution}, #worker{seconds_timer = Timer0, db_layers = DBs, opts = Opts}=W) ->
   Timer0 = timer_for(Resolution, W),
   erlang:cancel_timer(Timer0),
-
   TargetResolution = next_layer(Resolution, DBs),
-  W1 =
-  case TargetResolution of 
+  
+  W1 = case TargetResolution of 
     undefined -> 
       W;
     _ ->
-      Source0 = find_db(Resolution, DBs),
-      Target0 = find_db(TargetResolution, DBs),
-  
-      Info = pulsedb:info(Source0),
-      Metrics = proplists:get_value(sources, Info, []),
-  
-      Target1 = lists:foldl(fun({Name, Tags}, T0) ->
-        Data = block_data(Name, Tags, TargetResolution, Source0),
-        TicksAvg = [{<<"avg-", Name/binary>>, UTC, Value, Tags} || {UTC, Value} <- proplists:get_value(avg, Data, [])],
-        TicksMax = [{<<"max-", Name/binary>>, UTC, Value, Tags} || {UTC, Value} <- proplists:get_value(max, Data, [])],
+      {Now, _} = pulsedb:current_second(),
+      UTC = first_utc(Now, TargetResolution),
 
-        {ok, T1} = pulsedb:append(TicksAvg, T0),
-        {ok, T2} = pulsedb:append(TicksMax, T1),
-        T2
-      end, Target0, Metrics),
+      Metrics0 = proplists:get_value(sources, pulsedb_memory:info(Resolution), []),
+      Metrics = 
+      case proplists:get_value(shard, Opts) of
+        undefined -> Metrics0;
+        Shard -> [{Name, Tags} || {Name, Tags} <- Metrics0, lists:member(Shard, Tags)]
+      end,
+      Ticks = pulsedb_memory:merge_seconds_data(Metrics, UTC),
+      
+      Target0 = find_db(TargetResolution, DBs),
+      {ok, Target1} = pulsedb:append(Ticks, Target0),
       DBs1 = update_db(TargetResolution, Target1, DBs),
+%       [begin
+%       Ticks = pulsedb_memory:merge_seconds_data(M, UTC),
+%       lager:info("TICKS ~p", [{M, Ticks}])
+%        end || M <- Metrics],
+
+%       Target0 = find_db(TargetResolution, DBs),
+%       {ok, Target1} = pulsedb:append(Ticks, Target0),
+      
+%       From = first_utc(Now, TargetResolution),
+%       To = last_utc(Now, TargetResolution),
+%       {ok, Target1} = pulsedb_aggregator:aggregate(Resolution, From, To, Source0, Target0),
+%       DBs1 = update_db(TargetResolution, Target1, DBs),
       W#worker{db_layers = DBs1}
   end,
 
@@ -250,6 +270,13 @@ next_layer(_,_) ->
   undefined.
 
 
+first_utc(UTC, minutes) -> (UTC div 60) * 60;
+first_utc(UTC, hours)   -> (UTC div 3600) * 3600.
+  
+last_utc(UTC, minutes) -> ((UTC div 60) + 1) * 60 - 1;
+last_utc(UTC, hours)   -> ((UTC div 3600) + 1) * 3600 - 1.
+
+
 
 find_db(Resolution, Layers) ->
   proplists:get_value(Resolution, Layers).
@@ -261,7 +288,7 @@ update_db(Resolution, DB, Layers0) ->
 
 start_timer(seconds, #worker{}=W) ->
   {_,Delay} = pulsedb:current_minute(),
-  lager:info("AGGREGATION: ~p NEXT START AFTER ~p", [seconds, Delay]),
+  %lager:info("AGGREGATION: ~p NEXT START AFTER ~p", [seconds, Delay]),
   Timer = erlang:send_after(Delay, self(), {aggregate, seconds}),
   W#worker{seconds_timer = Timer};
 
@@ -275,45 +302,3 @@ start_timer(minutes, #worker{}=W) ->
 timer_for(seconds, #worker{seconds_timer=T}) -> T;
 timer_for(minutes, #worker{minutes_timer=T}) -> T.
 
-
-
-block_data(Name, Tags, Resolution, Source) ->
-  {Now, _} = pulsedb:current_second(),
-  From = first_utc(Now, Resolution),
-  To = last_utc(Now, Resolution),
-  UTCPeriod = To - From + 1,
-  
-  Query = [{aggregator, <<"sum">>}, {from, From}, {to, To} | Tags],
-  {ok, Ticks, _} = pulsedb:read(Name, Query, Source),
-
-  Downsamplers = 
-  case Name of
-    <<"avg-",_/binary>> -> [avg];
-    <<"max-",_/binary>> -> [max];
-    _ -> [avg, max]
-  end,
-  
-  downsample(Downsamplers, From, UTCPeriod, Ticks).
-  
-
-downsample([],_,_,_) -> [];
-downsample([Ds|Rest], From, UTCPeriod, Ticks) when is_atom(Ds) ->
-  DsBin = atom_to_binary(Ds, latin1),
-  Downsampled = pulsedb_data:downsample({UTCPeriod, DsBin}, Ticks),
-  Value = proplists:get_value(From, Downsampled),
-  case Value of
-    undefined -> [];
-    _ -> [{Ds, [{From, Value}]}
-          | downsample(Rest, From, UTCPeriod, Ticks)]
-  end.
-
-
-%%%%%%%%%%%%%%
-% TIME HELPERS
-%%%%%%%%%%%%%%
-
-first_utc(UTC, minutes) -> ((UTC div 60) - 1) * 60;
-first_utc(UTC, hours)   -> ((UTC div 3600) - 1) * 3600.
-  
-last_utc(UTC, minutes) -> ((UTC div 60)) * 60 - 1;
-last_utc(UTC, hours)   -> ((UTC div 3600)) * 3600 - 1.

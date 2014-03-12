@@ -43,11 +43,15 @@ required_chunks(From, To, Date, #storage_config{ticks_per_chunk = NTicks, utc_st
        F == DayN -> ((From div Step) - DayN*NTicks) rem NTicks;
        true -> 0 end,
      
-     Length = if
-       Offset > 0        -> NTicks - Offset;
+     Length0 = if
        T == F, T == DayN -> (To div Step) - (From div Step) + 1;
        T == DayN         -> (To div Step) - DayN*NTicks + 1;
        true              -> NTicks end,
+     
+     % length correction
+     Length = if 
+       Offset + Length0 > NTicks -> NTicks - Offset;
+       true                      -> Length0 end,
      
      {Chunk, Offset, Length}
      end || DayN <- lists:seq(F, T), month_num(DayN*NTicks*Step) == DateMonth].
