@@ -109,7 +109,9 @@ init([Name, Options0]) ->
   
   case DBs of
     _ when length(DBs) =/= length(Resolutions) ->
-      proc_lib:init_ack({error, proplists:get_all_values(error, DBs)}),
+      Failed = [M || {_,M} <- DBs1 -- DBs],
+      Error = proplists:get_value(error, Failed),
+      proc_lib:init_ack({error, Error}),
       ok;
     _ -> 
       CleanTimeout = proplists:get_value(delete_older, Options),

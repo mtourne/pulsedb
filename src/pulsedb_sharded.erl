@@ -92,7 +92,7 @@ append(Ticks, #sharded_db{} = State) when is_list(Ticks) ->
 
 append({Name,UTC,Value,Tags}, #sharded_db{tracker=Tracker, shard_tag = ShardTag, options = Opts,
                                           path=DBPath, partitions_append=Partitions0} = State) ->
-  ShardName = proplists:get_value(ShardTag, Tags),
+  ShardName = proplists:get_value(ShardTag, Tags, <<"no-shard-tag">>),
   {DB, Partitions1} = 
   case proplists:get_value(ShardName, Partitions0) of
     undefined ->

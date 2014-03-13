@@ -51,17 +51,26 @@ init_per_suite(Config) ->
   [{ok,App} = start_app(App) || App <- Apps],
 
   R = [{apps,Apps}],
-  {ok, Pid} = pulsedb:open(netpush_db, [{url, "file://test/v3/netpush_db"}]),
-  unlink(Pid),
+%   {ok, Pid} = pulsedb:open(netpush_db, [{url, "file://test/v3/netpush_db"}]),
+%   unlink(Pid),
+
+  DB = {netpush_db, [{url,"file://test/v3/netpush_db"}]},
+  DB_ssl = {netpush_db_ssl, [{url,"file://test/v3/netpush_db_ssl"}]},
 
 
   Port = 6801,
   NetAuth = [{key,key()}],
-  Dispatch = [{'_', [
-    {"/api/v1/pulse_push", pulsedb_netpush_handler, [{db,netpush_db},{auth,pulsedb_netpush_auth,NetAuth}]}
-  ]}],
+  
+  Dispatch = fun(D) -> 
+    [{'_', [
+      {"/api/v1/pulse_push", 
+       pulsedb_netpush_handler, 
+       [{db,D}, {auth,pulsedb_netpush_auth,NetAuth}]}
+    ]}]
+  end,
+  
   {ok, L} = ranch:start_listener(fake_pulsedb, 1, ranch_tcp, [{port,Port}], cowboy_protocol, [{env, [
-    {dispatch, cowboy_router:compile(Dispatch)}
+    {dispatch, cowboy_router:compile(Dispatch(DB))}
   ]}]),
 
   SslTransOpts =
@@ -73,7 +82,7 @@ init_per_suite(Config) ->
       {ciphers, ciphers()}],
 
   {ok, L2} = ranch:start_listener(fake_pulsedb_ssl, 1, ranch_ssl, [{port,Port+1}|SslTransOpts], cowboy_protocol, [{env, [
-    {dispatch, cowboy_router:compile(Dispatch)}
+    {dispatch, cowboy_router:compile(Dispatch(DB_ssl))}
   ]}]),
 
   [{r,R}|Config].
@@ -243,6 +252,10 @@ netpush_403(_) ->
 
 netpush_append(_) ->
   Apikey = pulsedb_netpush_auth:make_api_key(key(), [{<<"point">>, <<"p1">>}]),
+  
+    ct:pal("E ~p", [Apikey]),
+  ct:break("ass"),
+  
   {ok, DB1} = pulsedb:open(netpush_client, [{url, "pulse://localhost:6801/"},{api_key,Apikey}]),
 
   Ticks1 = [
@@ -324,7 +337,7 @@ netpush_ssl_append(_) ->
   pulsedb:sync(netpush_ssl_client),
 
 
-  {ok, T1, _} = pulsedb:read(<<"sum:input{name=source-ssl1,from=1970-01-01,to=1970-01-02}">>, netpush_db),
+  {ok, T1, _} = pulsedb:read(<<"sum:input{name=source-ssl1,from=1970-01-01,to=1970-01-02}">>, netpush_db_ssl),
   [{120,6},
    {130,10},
    {140,3}] = [T || {_,V}=T <- T1, V > 0],
