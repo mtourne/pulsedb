@@ -22,18 +22,17 @@ init_per_suite(Config) ->
   Apps = [lager, crypto, asn1, public_key, ssl, ranch, cowlib, cowboy, lhttpc, pulsedb],
   [application:start(App) || App <- Apps],
   lager:start(),
-  DbSpec = {simple_db, {pulsedb, open, [test_db, [{url,"file://test_db"}]]}, permanent, 100, worker, []},
-  {ok, _} = supervisor:start_child(pulsedb_sup, DbSpec),
+  DB = {undefined, [{url,"file://test_db"}]},
 
   Dispatch = [{'_', [
-    {"/test_push1", pulsedb_netpush_handler, [{db,test_db},{auth,?MODULE,auth_test1}]},
-    {"/test_embed1/[...]", pulsedb_graphic_handler, [{db,test_db},{embed,?MODULE,embed_test1}]},
+    {"/test_push1", pulsedb_netpush_handler, [{db,DB},{auth,?MODULE,auth_test1}]},
+    {"/test_embed1/[...]", pulsedb_graphic_handler, [{db,DB},{embed,?MODULE,embed_test1}]},
                      
     
-    {"/test_embed_auth/[...]",         pulsedb_graphic_handler, [{db,test_db},{auth,pulsedb_netpush_auth,[{key, ?CRYPT_KEY}]}]},
-    {"/test_embed_bad_resolver/[...]", pulsedb_graphic_handler, [{db,test_db}, {resolver, ?MODULE, bad_resolve}]},
-    {"/test_embed_no_auth/[...]",      pulsedb_graphic_handler, [{db,test_db}]},
-    {"/test_embed_not_found/[...]",    pulsedb_graphic_handler, [{db,test_db},{resolver,?MODULE,resolver_404}]}
+    {"/test_embed_auth/[...]",         pulsedb_graphic_handler, [{db,DB},{auth,pulsedb_netpush_auth,[{key, ?CRYPT_KEY}]}]},
+    {"/test_embed_bad_resolver/[...]", pulsedb_graphic_handler, [{db,DB}, {resolver, ?MODULE, bad_resolve}]},
+    {"/test_embed_no_auth/[...]",      pulsedb_graphic_handler, [{db,DB}]},
+    {"/test_embed_not_found/[...]",    pulsedb_graphic_handler, [{db,DB},{resolver,?MODULE,resolver_404}]}
   ]}],
 
   ranch:start_listener(test_pulsedb, 1, ranch_tcp, [{port,5674}], cowboy_protocol, [{env, [

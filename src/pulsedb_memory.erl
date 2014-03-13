@@ -11,6 +11,7 @@
 -export([subscribe/2, unsubscribe/2]).
 -export([replicate/2]).
 -export([info/1]).
+-export([clean_data/1]).
 
 
 
@@ -36,20 +37,20 @@ append(Tick, DB) when is_tuple(Tick) ->
 
 append0({Name,UTC,Value,Tags}, DB) ->
   Table = table(DB),
-  Metric = cached_metric_name(Name,Tags),
+  Metric = cached_metric_name(Name,Tags, DB),
   ets:insert_new(Table, {{Metric,UTC}, Value}),
   Pulse = {pulse,DB,Name,UTC,Value,Tags},
   [Pid ! Pulse || {_,Pid} <- ets:lookup(pulsedb_replicators, DB)],
   ok.
 
 
-cached_metric_name(Name, Tags) ->
-  case ets:lookup(pulsedb_metric_names, {Name, Tags}) of
+cached_metric_name(Name, Tags, DB) ->
+  case ets:lookup(metric_table(DB), {Name, Tags}) of
     [{_, Metric}] ->
       Metric;
     [] ->
       Metric = pulsedb_disk:metric_name(Name, Tags),
-      ets:insert(pulsedb_metric_names, {{Name,Tags},Metric}),
+      ets:insert(metric_table(DB), {{Name,Tags},Metric}),
       Metric
   end.
 
@@ -59,7 +60,7 @@ cached_metric_name(Name, Tags) ->
 read(Name, Query, DB) when DB == seconds orelse DB == minutes ->
   Tags = [{K,V} || {K,V} <- Query, is_binary(K)],
 
-  Metrics = [M || {{N,T},M} <- ets:tab2list(pulsedb_metric_names), N == Name andalso pulsedb_disk:metric_fits_query(Tags,T)],
+  Metrics = [M || {{N,T},M} <- ets:tab2list(metric_table(DB)), N == Name andalso pulsedb_disk:metric_fits_query(Tags,T)],
 
   Table = table(DB),
   Step = step(DB),
@@ -101,7 +102,7 @@ merge_seconds_data(Metrics, UTC) when UTC rem 60 == 0 ->
   Ticks = lists:seq(UTC - 60, UTC, 1),
 
   Updates = lists:flatmap(fun({Name,Tags}) ->
-    Metric = cached_metric_name(Name, Tags),
+    Metric = cached_metric_name(Name, Tags, seconds),
     Stats = lists:flatmap(fun(I) ->
       case ets:lookup(pulsedb_seconds_data, {Metric,I}) of
         [{_,Value}] -> [Value];
@@ -112,25 +113,50 @@ merge_seconds_data(Metrics, UTC) when UTC rem 60 == 0 ->
       [] ->
         [];
       _ ->
-        Value = lists:sum(Stats) div length(Stats),
-        ets:insert(pulsedb_minutes_data, {{Metric,UTC - 60}, Value}),
-        Pulse = {pulse,minutes,Name,UTC-60,Value,Tags},
-        [Pid ! Pulse || {_,Pid} <- ets:lookup(pulsedb_replicators, minutes)],
-        [{Name,UTC - 60,Value, Tags}]
+        Value = lists:sum(Stats) div 60,
+        Tick = {Name, UTC-60, Value, Tags},
+        append(Tick, minutes),
+        [Tick]
     end
   end, Metrics),
   Updates.
 
 
 
-info(_) ->
-  [{sources, lists:usort([Q || {Q, _} <- ets:tab2list(pulsedb_metric_names)])}].
+
+info(DB) ->
+  Table = metric_table(DB),
+  [{sources, lists:usort([Q || {Q, _} <- ets:tab2list(Table)])}].
   
 table(seconds) -> pulsedb_seconds_data;
 table(minutes) -> pulsedb_minutes_data.
 
+metric_table(seconds) -> pulsedb_metric_names_seconds;
+metric_table(minutes) -> pulsedb_metric_names_minutes.
+
 step(seconds) -> 1;
 step(minutes) -> 60.
+  
+  
+
+  
+clean_data(MetricName) ->
+  ets:select_delete(pulsedb_seconds_data, ets:fun2ms(fun(Row) when 
+    element(1,element(1,Row)) == MetricName -> true
+  end)),
+
+  ets:select_delete(pulsedb_minutes_data, ets:fun2ms(fun(Row) when 
+    element(1,element(1,Row)) == MetricName  -> true
+  end)),
+
+  ets:select_delete(pulsedb_metric_names_seconds, ets:fun2ms(fun({_,M_}) when 
+    M_ == MetricName  -> true
+  end)),
+  
+  ets:select_delete(pulsedb_metric_names_minutes, ets:fun2ms(fun({_,M_}) when 
+    M_ == MetricName  -> true
+  end)).
+  
   
   
 
@@ -151,7 +177,8 @@ init([]) ->
   ets:new(pulsedb_collectors, [public, named_table, {keypos,2}, {read_concurrency,true}]),
   ets:new(pulsedb_seconds_data, [public, named_table, {write_concurrency,true}]),
   ets:new(pulsedb_minutes_data, [public, named_table, {write_concurrency,true}]),
-  ets:new(pulsedb_metric_names, [public, named_table, {read_concurrency,true}]),
+  ets:new(pulsedb_metric_names_seconds, [public, named_table, {read_concurrency,true}]),
+  ets:new(pulsedb_metric_names_minutes, [public, named_table, {read_concurrency,true}]),
   ets:new(pulsedb_replicators,  [public, named_table, {read_concurrency,true}, bag]),
   % ets:new(pulse_flow_clients, [public, named_table, bag, {read_concurrency,true}]),
 
@@ -194,7 +221,7 @@ handle_info(clean, #storage{clean_timer = Old} = S) ->
   end)),
 
   ets:select_delete(pulsedb_seconds_data, ets:fun2ms(fun(Row) when
-    element(2,element(1,Row)) < Minute - 60 ->
+    element(2,element(1,Row)) < Minute - 120 ->
     true
   end)),
 

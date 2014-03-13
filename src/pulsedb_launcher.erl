@@ -94,30 +94,28 @@ start() ->
       []
   end,
   
-  DBPath = case application:get_env(pulsedb, path) of
-    {ok, P} -> [{path,P}];
-    _ -> []
+  
+  PulsesDB = case application:get_env(pulsedb, path) of
+    {ok, Path} ->
+      [{db, {undefined, [{url,"sharded://"++Path},
+                         {shard_tag, <<"account">>},
+                         {tracker, pulsedb_shards},
+                         {timeout,120*1000}, 
+                         {resolutions, [seconds, minutes]}]}}];
+    _ ->
+      []
   end,
 
+  
   StaticDir = case application:get_key(cowboy,vsn) of
     {ok, "0.9."++_} -> {dir, "webroot/js", [{mimetypes, cow_mimetypes, web}]};
     {ok, "0.8."++_} -> [{directory, "webroot/js"}]
   end,
 
-
-  ReadDB = case application:get_env(pulsedb, path) of
-    {ok, Path} ->
-      {ok, Shard} = pulsedb:open(undefined, [{url,"sharded://"++Path}]),
-      [{db, Shard}];
-    _ ->
-      []
-  end,
-
-
   Dispatch = [{'_', [
     {"/api/v1/status", pulsedb_netpush_handler, [status]},
-    {"/api/v1/pulse_push", pulsedb_netpush_handler, [{tracker, pulsedb_shards}] ++ Auth ++ DBPath},
-    {"/embed/[...]", pulsedb_graphic_handler, ReadDB ++ EmbedResolver ++ Auth},
+    {"/api/v1/pulse_push", pulsedb_netpush_handler, PulsesDB ++ Auth},
+    {"/embed/[...]", pulsedb_graphic_handler, PulsesDB ++ EmbedResolver ++ Auth},
     {"/pages/points/[...]", pulsedb_points_handler, [] ++ Superuser},
     {"/js/[...]", cowboy_static, StaticDir}
   ]}],
@@ -142,4 +140,5 @@ start() ->
       filelib:ensure_dir(PidFile),
       file:write_file(PidFile, os:getpid())
   end,
+
   ok.

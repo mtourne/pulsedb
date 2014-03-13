@@ -16,7 +16,6 @@ open(DBPath, Options) when is_list(DBPath) ->
 open(<<"sharded://", DBPath/binary>>, Options) ->
   open(DBPath, Options);
 open(DBPath, Options) when is_binary(DBPath) ->
-  lager:info("OPEN ~p", [DBPath]),
   ShardTag = proplists:get_value(shard_tag, Options, <<"account">>),
   Tracker = proplists:get_value(tracker, Options),
   Options1 = proplists:delete(sharded, Options),
@@ -91,20 +90,22 @@ append(Ticks, #sharded_db{} = State) when is_list(Ticks) ->
   {ok, State1};
 
 
-append({Name,UTC,Value,Tags}, #sharded_db{tracker=Tracker, shard_tag = ShardTag,
+append({Name,UTC,Value,Tags}, #sharded_db{tracker=Tracker, shard_tag = ShardTag, options = Opts,
                                           path=DBPath, partitions_append=Partitions0} = State) ->
-  ShardName = proplists:get_value(ShardTag, Tags),
+  ShardName = proplists:get_value(ShardTag, Tags, <<"no-shard-tag">>),
   {DB, Partitions1} = 
   case proplists:get_value(ShardName, Partitions0) of
     undefined ->
       RealPath = partition_path(DBPath, ShardName),
-      Spec = {ShardName, {pulsedb_worker, start_link, [undefined, [{url,RealPath},{timeout,120*1000}]]}, temporary, 200, worker, []},
+      Args = [undefined, [{url,RealPath},
+                          {timeout,120*1000},
+                          {shard, {ShardTag, ShardName}}|Opts]],
+      Spec = {ShardName, {pulsedb_worker, start_link, Args}, temporary, 200, worker, []},
       {ok, DB_} = gen_tracker:find_or_open(Tracker, Spec),
       {DB_, [Partitions0]};
     DB_ ->
       {DB_, proplists:delete(ShardName, Partitions0)}
   end,
-  
   Partitions2 = 
   case pulsedb:append({Name,UTC,Value,Tags}, DB) of
     {ok, DB1} -> [{ShardName, DB1}|Partitions1];

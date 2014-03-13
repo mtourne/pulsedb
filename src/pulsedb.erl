@@ -6,11 +6,11 @@
 -export_types([db/0, utc/0, source_name/0, tick/0]).
 
 
--export([open/1, open/2, append/2, read/3, read/2, close/1, sync/1]).
+-export([open/1, open/2, append/2, read/3, read/2, close/1, sync/1, read_once/2]).
 -export([info/1, parse_query/1]).
 
 -export([collect/3, collect/4, stop_collector/1]).
--export([current_second/0, current_minute/0]).
+-export([current_second/0, current_minute/0, current_hour/0]).
 
 -export([subscribe/2, unsubscribe/1]).
 -export([replicate/1]).
@@ -149,6 +149,46 @@ read(Query0, DB) when is_binary(Query0) ->
   read(Name, [{aggregator,Aggregator},{downsampler,Downsampler}] ++ Query, DB).
 
 
+read_once(Query0, DBOpts0) when is_list(DBOpts0) ->
+  {Aggregator, Downsampler, Name0, Query1} = parse_query(Query0),
+  try
+    Resolution = 
+    case Downsampler of
+      undefined -> seconds;
+      {Interval,_} when Interval < 60          -> seconds;
+      %{Interval,_} when Interval rem 3600 == 0 -> hours;
+      {Interval,_} when Interval rem 60 == 0   -> minutes;
+      _ -> throw({incorrect_downsampler, Downsampler})
+    end,
+
+    Name = 
+    case Downsampler of
+      undefined         -> Name0;
+      {I,_} when I < 60 -> Name0;
+      {_,<<"avg">>}     -> Name0;
+
+      {_,DS} when is_binary(DS) -> 
+        <<DS/binary, "-", Name0/binary>>;
+
+      {_,DS} when is_binary(DS) ->
+        Prefix = iolist_to_binary(lists:concat([DS, "-"])),
+        <<Prefix/binary, Name0/binary>>;
+      _ -> throw({incorrect_downsampler, Downsampler})
+    end,
+
+    DBOpts = [{resolution, Resolution}|proplists:delete(Resolution, DBOpts0)],
+    {ok, DB0} = open(undefined, DBOpts),
+    Query = [{aggregator,Aggregator},{downsampler,Downsampler}] ++ clean_query(Query1),
+    {ok, Ticks, DB1} = read(Name, Query, DB0),
+    close(DB1),
+    {ok, Ticks}
+  catch throw:E -> 
+    {error, E}
+  end.
+    
+  
+  
+
 
 parse_query(Query) ->
   pulsedb_parser:parse(Query).
@@ -240,6 +280,4 @@ current_hour() ->
   Second = Mega*1000000 + Sec,
   Delay = (3900 - (Second rem 3600))*1000 + Milli,
   {Second, Delay}.
-
-
 

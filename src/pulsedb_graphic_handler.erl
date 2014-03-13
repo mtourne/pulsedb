@@ -36,12 +36,14 @@
 
 
 init_state(#page_state{}=State, Opts) ->
-  State#page_state{db = proplists:get_value(db, Opts),
+  {_,DBOpts} = proplists:get_value(db, Opts),
+  State#page_state{db = DBOpts,
                    auth = lists:keyfind(auth, 1, Opts),
                    resolver = lists:keyfind(resolver, 1, Opts)};
 
 init_state(#ws_state{}=State, Opts) ->
-  State#ws_state{db = proplists:get_value(db, Opts),
+  {_,DBOpts} = proplists:get_value(db, Opts),
+  State#ws_state{db = DBOpts,
                  auth = lists:keyfind(auth, 1, Opts),
                  resolver = lists:keyfind(resolver, 1, Opts)}.
 
@@ -189,43 +191,43 @@ websocket_terminate(Reason, _Req, #ws_state{ip = Ip}) ->
 % BACKEND
 %%%%%%%%%
 pulse_subscribe(Title, Queries, #ws_state{db = DB} = State, Opts) ->
-  {History, PulseTokens, LastUTCs1} = lists:unzip3(
+{History, PulseTokens, LastUTCs1} = lists:unzip3(
   [begin
     {Name, QueryRealtime, QueryHistory} = make_queries(Query, Opts),
-
-
-    {ok,History1,_} = pulsedb:read(QueryHistory, DB),
+    {ok,History1} = pulsedb:read_once(QueryHistory, DB),
     HistoryData = [[T*1000, V] || {T, V} <- History1],
 
     Token = make_ref(),
-    pulsedb:subscribe(QueryRealtime, Token),
-    erlang:garbage_collect(self()),
-    lager:info("Subscribed websocket ~p to pulse ~s", [get(name), QueryRealtime]),
-
     Link = {Name, Token},
+
+    case QueryRealtime of
+      undefined -> ok;
+      _ ->
+      pulsedb:subscribe(QueryRealtime, Token),
+      lager:info("Subscribed websocket ~p to pulse ~s", [get(name), QueryRealtime])
+    end,
+    erlang:garbage_collect(self()),
+
     History2 = [{name,Name},{data, HistoryData}],
 
     LastUTC = case History1 of
       [] -> undefined;
       _ -> {Token, element(1,lists:last(History1))}
     end,
-     {History2, Link, LastUTC}
-    end
-   || Query <- Queries]),
+    {History2, Link, LastUTC}
+  end
+  || Query <- Queries]),
 
 
   LastUTCs = [L || L <- LastUTCs1, is_tuple(L)],
-  Config = [
-    {title, Title}
-  ],
-  Reply = [{init, true}, {options, Config}, {data, History}],
+  Reply = [{init, true}, {options, [{title, Title}]}, {data, History}],
   {ok, Reply, State#ws_state{pulses=PulseTokens, last_utc = LastUTCs}}.
 
 
 pulse_history(Title, Queries, #page_state{db=DB}, Opts) ->
   History = [begin
      {Name, _, QueryHistory} = make_queries(Query, Opts),
-     {ok,History1,_} = pulsedb:read(QueryHistory, DB),
+     {ok,History1} = pulsedb:read_once(QueryHistory, DB),
      HistoryData = [[T*1000, V] || {T, V} <- History1],
      [{name,Name},{data, HistoryData}]
   end || Query <- Queries],
@@ -287,8 +289,7 @@ make_queries(Query0, Opts) ->
   To   = Now - 4,
   From = To - Step * 60,
 
-  Q2 =
-  if
+  Q2 = if
     Step > 1 -> pulsedb_query:set_step(Step, Q1);
     true -> Q1
   end,
@@ -297,7 +298,7 @@ make_queries(Query0, Opts) ->
   QueryHistory = pulsedb_query:set_range(From, To, Q2),
 
   Name = pulsedb_query:remove_tag([<<"account">>], QueryRealtime),
-  {pulsedb_query:render(Name),
+  {pulsedb_query:render(Name), 
    pulsedb_query:render(QueryRealtime),
    pulsedb_query:render(QueryHistory)}.
 
@@ -358,3 +359,5 @@ decrypt_embed(Embed, {auth,AuthModule,AuthArgs}) ->
 
 decrypt_embed(Embed, false) ->
   {ok, <<"Graphic">>, [Embed], true}.
+
+

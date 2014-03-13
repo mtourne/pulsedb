@@ -45,13 +45,16 @@
 -callback block_start_utc(UTC :: utc(), Config :: storage_config()) -> FirstBlockUTC :: utc().
 -callback block_end_utc  (UTC :: utc(), Config :: storage_config()) -> LastBlockUTC :: utc().
 
+-callback last_day(Path :: file:filename()) -> Path :: file:filename()|undefined.
 
 
 
 -export([open/2, append/2, read/3, close/1, sync/1]).
--export([info/1]).
+-export([info/1, full_info/2]).
 -export([delete_older/2]).
 -export([metric_name/2, metric_fits_query/2]).
+
+-export([read_all/4]).
 
 
 -spec open(Path::file:filename(), Options::list()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
@@ -142,8 +145,8 @@ open_existing_db(#disk_db{path = Path, date = Date, mode = Mode, config = Config
   end,
 
   Opts = case Mode of
-    append -> [binary,read,write,raw];
-    read -> [binary,read,raw]
+    append -> [binary,read,write];
+    read -> [binary,read]
   end,
 
   {ok, ConfigFd} = file:open(ConfigPath, Opts),
@@ -353,39 +356,44 @@ info(#disk_db{sources = Sources}) when is_list(Sources) ->
   Src = lists:sort([{Name,lists:sort(Tags)} || #source{original_name = Name, original_tags = Tags} <- Sources]),
   [{sources,Src}];
 
-info(#disk_db{path = Path, config=Config} = DB) ->
-  case last_day(Path) of
+info(#disk_db{path = Path, config=#storage_config{partition_module=Partition}=Config} = DB) ->
+  case Partition:last_day(Path) of
     undefined -> [];
     DayPath -> info(DB#disk_db{sources = decode_config(read_file(filename:join(DayPath,config_v4)), Config)})
   end.
 
 
-last_folder(F, Path, Length) ->
-  case prim_file:list_dir(F, Path) of
-    {ok, List} ->
-      case lists:reverse(lists:sort([Y || Y <- List, length(Y) == Length])) of
-        [] -> undefined;
-        [Y|_] -> Y
-      end;
-    _ ->
-      undefined
-  end.
+full_info(Date, #disk_db{path = DbPath, 
+                    config = #storage_config{ticks_per_chunk=NTicks, 
+                                             chunks_per_metric=NChunks,
+                                             chunk_bits=ChunkBits,
+                                             utc_step = UTCStep,
+                                             partition_module=Partition}=Config}) ->
+  UTC = pulsedb_time:parse(Date),
+  Path = Partition:block_path(UTC),
+  DateUTC = Partition:parse_date(Date),
+  DataPath = filename:join([DbPath, Path]),
+  Sources0 = decode_config(read_file(filename:join(DataPath,config_v4)), Config),
+  Sources = lists:keysort(#source.original_name, Sources0),
 
-last_day(Path) ->
-  {ok, F} = prim_file:start(),
-  Val = try last_day0(F, Path)
-  catch
-    throw:_ -> undefined
+  MapSource = 
+  fun (#source{original_name = Name, original_tags = Tags, block_offsets = BOs}) ->
+    Chunks = [[{index, N},
+               {utc, DateUTC + N*NTicks*UTCStep},
+               {offset, Offset bsl ChunkBits}]
+              || {N,Offset} <- BOs],
+    [{name, Name},
+     {tags, lists:sort(Tags)},
+     {chunks, Chunks}]
   end,
-  prim_file:stop(F),
-  Val.
-
-last_day0(F, Path) ->
-  (Year = last_folder(F, Path, 4)) =/= undefined orelse throw(undefined),
-  (Month = last_folder(F, filename:join(Path,Year), 2)) =/= undefined orelse throw(undefined),
-  (Day = last_folder(F, filename:join([Path,Year,Month]), 2)) =/= undefined orelse throw(undefined),
-  filename:join([Path,Year,Month,Day]).
-
+  
+  [{utc, DateUTC},
+   {path, DataPath},
+   {chunks_per_metric, NChunks},
+   {ticks_per_chunk, NTicks},
+   {seconds_per_tick, UTCStep},
+   {chunk_size, 1 bsl ChunkBits},
+   {sources, [MapSource(S) || S <- Sources]}].
 
 
 
@@ -406,6 +414,28 @@ read(Name, Query, #disk_db{path = Path, date = Date, config = #storage_config{pa
     {error, _} = Error ->
       Error
   end.
+
+% -> [{{Name, Tags}, Ticks}]
+read_all(From, To, Opts, #disk_db{config = #storage_config{partition_module=Partition}=Config} = DB) ->
+  RequiredDates = Partition:required_partitions(From, To, Config),
+  Data = 
+  [begin
+     DB1 = open_existing_db(DB#disk_db{date = Date, mode = read}),
+     SourceData = try
+       Info = pulsedb:info(DB1),
+       Sources = proplists:get_value(sources, Info),
+       [begin
+          Query = [{from, From}, {to, To}|Tags]++Opts,
+          {ok, Ticks, _} = read0(Name, Query, DB1),
+          {Source, Ticks}
+          end || {Name, Tags}=Source <- Sources]
+     catch _:_ -> []
+     end,
+     close(DB1),
+     SourceData
+   end
+   || Date <- RequiredDates],
+  {ok, lists:concat(Data), DB}.
 
 
 
@@ -444,42 +474,62 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
                                                      chunk_bits=ChunkBits,
                                                      utc_step = UTCStep,
                                                      partition_module=Partition} = Config} = DB) when Date =/= undefined ->
+  Self = self(),
   Tags = [{K,V} || {K,V} <- Query, is_binary(K)],
-
+  
   ReadSources = select_sources(Name, Tags, Sources),
-
   DateUTC = Partition:parse_date(Date),
+  
   From = proplists:get_value(from,Query, Partition:block_start_utc(DateUTC, Config)),
   To = proplists:get_value(to,Query, Partition:block_end_utc(DateUTC, Config)),
-
-  HrsToRead = Partition:required_chunks(From, To, DateUTC, Config),
-
-  Ticks1 = lists:flatmap(fun({H,TickOffset,Limit}) ->
-    Ticks2 = lists:flatmap(fun(#source{block_offsets = Offsets}) ->
-      case lists:keyfind(H, 1, Offsets) of
-        {ChunkN, Offset} ->
-          case file:pread(DataFd, Offset bsl ChunkBits + TickSize*TickOffset, TickSize*Limit) of
-            {ok, Bin} ->
-              pulsedb_data:unpack_ticks(Bin, DateUTC + (ChunkN*NTicks + TickOffset)*UTCStep, UTCStep);
-            _ ->
-              []
-          end;
-        false ->
-          []
-      end        
-    end, ReadSources),
-
-    Ticks3 = lists:sort(Ticks2),
-
-    Ticks4 = pulsedb_data:aggregate(proplists:get_value(aggregator,Query), Ticks3),
-    erlang:garbage_collect(self()),
-    Ticks4
-  end, HrsToRead),
   
+  HrsToRead = Partition:required_chunks(From, To, DateUTC, Config),
+  
+  Ticks1 = lists:flatmap(fun({H,TickOffset,Limit}) ->
+    Ref = make_ref(),
+                           
+    ReadFn = fun() ->
+      Ticks2 = lists:flatmap(fun(#source{block_offsets = Offsets}) ->
+        case lists:keyfind(H, 1, Offsets) of
+          {ChunkN, Offset} ->
+            case file:pread(DataFd, Offset bsl ChunkBits + TickSize*TickOffset, TickSize*Limit) of
+              {ok, Bin} ->
+                StartUTC = DateUTC + (ChunkN*NTicks + TickOffset)*UTCStep,
+                RawTicks = pulsedb_data:unpack_ticks(Bin, StartUTC, UTCStep),
+                pulsedb_data:interpolate(StartUTC, Limit, UTCStep, RawTicks);
+              _ ->
+                []
+            end;
+          false ->
+            []
+        end        
+      end, ReadSources),
+
+      Ticks3 = lists:sort(Ticks2),
+      Ticks4 = pulsedb_data:aggregate(proplists:get_value(aggregator,Query), Ticks3),
+      Self ! {chunk_data, Ref, Ticks4}
+    end,
+
+                           
+    ReaderPid = spawn(ReadFn),
+    receive
+      {chunk_data, Ref, ChunkTicks} ->
+        ensure_dead(ReaderPid),
+        ChunkTicks
+    after
+      20000 ->
+        ensure_dead(ReaderPid),
+        lager:info("db reader timeout ~p", [{Name, Date, H, process_info(self(), messages)}]),
+        []
+    end
+  end, HrsToRead),
+
   Ticks5 = pulsedb_data:downsample(proplists:get_value(downsampler,Query), Ticks1),
   {ok, Ticks5, DB}.
 
 
+ensure_dead(Pid) ->
+  exit(Pid, kill).
 
 
 
@@ -498,6 +548,8 @@ select_sources(Name, Tags, [#source{original_name = Name, original_tags = Tags1}
 
 select_sources(Name, Tags, [_|Sources]) ->
   select_sources(Name, Tags, Sources).
+
+
 
 
 
