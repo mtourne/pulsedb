@@ -156,7 +156,7 @@ read_once(Query0, DBOpts0) when is_list(DBOpts0) ->
     case Downsampler of
       undefined -> seconds;
       {Interval,_} when Interval < 60          -> seconds;
-      {Interval,_} when Interval rem 3600 == 0 -> hours;
+      %{Interval,_} when Interval rem 3600 == 0 -> hours;
       {Interval,_} when Interval rem 60 == 0   -> minutes;
       _ -> throw({incorrect_downsampler, Downsampler})
     end,
@@ -178,7 +178,6 @@ read_once(Query0, DBOpts0) when is_list(DBOpts0) ->
 
     DBOpts = [{resolution, Resolution}|proplists:delete(Resolution, DBOpts0)],
     {ok, DB0} = open(undefined, DBOpts),
-
     Query = [{aggregator,Aggregator},{downsampler,Downsampler}] ++ clean_query(Query1),
     {ok, Ticks, DB1} = read(Name, Query, DB0),
     close(DB1),

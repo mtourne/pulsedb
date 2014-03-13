@@ -50,7 +50,7 @@
 
 
 -export([open/2, append/2, read/3, close/1, sync/1]).
--export([info/1]).
+-export([info/1, full_info/2]).
 -export([delete_older/2]).
 -export([metric_name/2, metric_fits_query/2]).
 
@@ -145,8 +145,8 @@ open_existing_db(#disk_db{path = Path, date = Date, mode = Mode, config = Config
   end,
 
   Opts = case Mode of
-    append -> [binary,read,write,raw];
-    read -> [binary,read,raw]
+    append -> [binary,read,write];
+    read -> [binary,read]
   end,
 
   {ok, ConfigFd} = file:open(ConfigPath, Opts),
@@ -363,6 +363,40 @@ info(#disk_db{path = Path, config=#storage_config{partition_module=Partition}=Co
   end.
 
 
+full_info(Date, #disk_db{path = DbPath, 
+                    config = #storage_config{ticks_per_chunk=NTicks, 
+                                             chunks_per_metric=NChunks,
+                                             chunk_bits=ChunkBits,
+                                             utc_step = UTCStep,
+                                             partition_module=Partition}=Config}) ->
+  UTC = pulsedb_time:parse(Date),
+  Path = Partition:block_path(UTC),
+  DateUTC = Partition:parse_date(Date),
+  DataPath = filename:join([DbPath, Path]),
+  Sources0 = decode_config(read_file(filename:join(DataPath,config_v4)), Config),
+  Sources = lists:keysort(#source.original_name, Sources0),
+
+  MapSource = 
+  fun (#source{original_name = Name, original_tags = Tags, block_offsets = BOs}) ->
+    Chunks = [[{index, N},
+               {utc, DateUTC + N*NTicks*UTCStep},
+               {offset, Offset bsl ChunkBits}]
+              || {N,Offset} <- BOs],
+    [{name, Name},
+     {tags, lists:sort(Tags)},
+     {chunks, Chunks}]
+  end,
+  
+  [{utc, DateUTC},
+   {path, DataPath},
+   {chunks_per_metric, NChunks},
+   {ticks_per_chunk, NTicks},
+   {seconds_per_tick, UTCStep},
+   {chunk_size, 1 bsl ChunkBits},
+   {sources, [MapSource(S) || S <- Sources]}].
+
+
+
 
 -spec read(Name::source_name(), Query::[{binary(),binary()}], pulsedb:db()) -> {ok, [tick()], pulsedb:db()} | {error, Reason::any()}.
 
@@ -384,7 +418,6 @@ read(Name, Query, #disk_db{path = Path, date = Date, config = #storage_config{pa
 % -> [{{Name, Tags}, Ticks}]
 read_all(From, To, Opts, #disk_db{config = #storage_config{partition_module=Partition}=Config} = DB) ->
   RequiredDates = Partition:required_partitions(From, To, Config),
-  lager:info("READ Start"),
   Data = 
   [begin
      DB1 = open_existing_db(DB#disk_db{date = Date, mode = read}),
@@ -402,7 +435,6 @@ read_all(From, To, Opts, #disk_db{config = #storage_config{partition_module=Part
      SourceData
    end
    || Date <- RequiredDates],
-  lager:info("READ End"),
   {ok, lists:concat(Data), DB}.
 
 
@@ -442,7 +474,7 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
                                                      chunk_bits=ChunkBits,
                                                      utc_step = UTCStep,
                                                      partition_module=Partition} = Config} = DB) when Date =/= undefined ->
-
+  Self = self(),
   Tags = [{K,V} || {K,V} <- Query, is_binary(K)],
   
   ReadSources = select_sources(Name, Tags, Sources),
@@ -454,38 +486,50 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
   HrsToRead = Partition:required_chunks(From, To, DateUTC, Config),
   
   Ticks1 = lists:flatmap(fun({H,TickOffset,Limit}) ->
-    Ticks2 = lists:flatmap(fun(#source{block_offsets = Offsets}) ->
-      case lists:keyfind(H, 1, Offsets) of
-        {ChunkN, Offset} ->
-          
-          case file:pread(DataFd, Offset bsl ChunkBits + TickSize*TickOffset, TickSize*Limit) of
-            {ok, Bin} ->
-              
-              StartUTC = DateUTC + (ChunkN*NTicks + TickOffset)*UTCStep,
-              RawTicks = pulsedb_data:unpack_ticks(Bin, StartUTC, UTCStep),
-              pulsedb_data:interpolate(StartUTC, Limit, UTCStep, RawTicks);
-            
-            _ ->
-              []
-          end;
-        false ->
-          []
-      end        
-    end, ReadSources),
-
-    Ticks3 = lists:sort(Ticks2),
-    Ticks4 = pulsedb_data:aggregate(proplists:get_value(aggregator,Query), Ticks3),
-
-    erlang:garbage_collect(self()),
+    Ref = make_ref(),
                            
-    Ticks4
+    ReadFn = fun() ->
+      Ticks2 = lists:flatmap(fun(#source{block_offsets = Offsets}) ->
+        case lists:keyfind(H, 1, Offsets) of
+          {ChunkN, Offset} ->
+            case file:pread(DataFd, Offset bsl ChunkBits + TickSize*TickOffset, TickSize*Limit) of
+              {ok, Bin} ->
+                StartUTC = DateUTC + (ChunkN*NTicks + TickOffset)*UTCStep,
+                RawTicks = pulsedb_data:unpack_ticks(Bin, StartUTC, UTCStep),
+                pulsedb_data:interpolate(StartUTC, Limit, UTCStep, RawTicks);
+              _ ->
+                []
+            end;
+          false ->
+            []
+        end        
+      end, ReadSources),
+
+      Ticks3 = lists:sort(Ticks2),
+      Ticks4 = pulsedb_data:aggregate(proplists:get_value(aggregator,Query), Ticks3),
+      Self ! {chunk_data, Ref, Ticks4}
+    end,
+
+                           
+    ReaderPid = spawn(ReadFn),
+    receive
+      {chunk_data, Ref, ChunkTicks} ->
+        ensure_dead(ReaderPid),
+        ChunkTicks
+    after
+      20000 ->
+        ensure_dead(ReaderPid),
+        lager:info("db reader timeout ~p", [{Name, Date, H, process_info(self(), messages)}]),
+        []
+    end
   end, HrsToRead),
-  
+
   Ticks5 = pulsedb_data:downsample(proplists:get_value(downsampler,Query), Ticks1),
-  
   {ok, Ticks5, DB}.
 
 
+ensure_dead(Pid) ->
+  exit(Pid, kill).
 
 
 

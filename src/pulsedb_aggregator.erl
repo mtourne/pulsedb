@@ -1,7 +1,43 @@
 -module(pulsedb_aggregator).
 -compile(export_all).
 
--export([aggregate/5]).
+-export([aggregate/5, migrate/4, migrate_day/3]).
+
+
+migrate(TargetResolution, From, To, Path) ->
+  Url = iolist_to_binary(["file://", Path]),
+  {ok, Source} = pulsedb:open(undefined, [{url, Url}]),
+  {ok, Target} = pulsedb:open(undefined, [{url, Url}, {resolution, TargetResolution}]),
+  aggregate(TargetResolution, From, To, Source, Target).
+
+
+migrate_day(TargetResolution, Date, Path) ->
+  Url = iolist_to_binary(["file://", Path]),
+  {ok, Source} = pulsedb:open(undefined, [{url, Url}]),
+  {ok, Target} = pulsedb:open(undefined, [{url, Url}, {resolution, TargetResolution}]),
+  
+  UTC = pulsedb_time:parse(Date),
+  DateUTC = (UTC div 86400) * 86400,
+  
+  Step = 3600,
+  Parts = 86400 div Step,
+
+  lager:info("migration for ~p:", [DateUTC]),
+  [begin
+     From = DateUTC + H*Step,
+     To = DateUTC + (H+1)*Step - 1,
+     try
+       pulsedb_aggregator:aggregate(TargetResolution, From,To,Source, Target),
+       erlang:garbage_collect(self()),
+       lager:info("\t~p ok", [H]),
+       ok
+     catch
+       C:E -> 
+         lager:info("\t~p error: ~p", [H, {C,E}]),
+         {error, {C,E}}
+     end
+   end || H <- lists:seq(0, Parts-1)].
+
 
 
 

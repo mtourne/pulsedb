@@ -65,6 +65,8 @@ required_partitions(From, To, #storage_config{}) ->
 block_path(UTC) ->
   month_path(UTC).
 
+parse_date(Date) when is_list(Date) ->
+  parse_date(iolist_to_binary(Date));
 
 parse_date(<<YM:7/binary, Sep:1/binary, _/binary>>) ->
   pulsedb_time:parse(<<YM/binary, Sep:1/binary, "01">>).
