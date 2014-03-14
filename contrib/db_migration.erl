@@ -33,62 +33,134 @@ main(["info", Path]) ->
   print_migrations(Migrations),
   ok;
 
+main(["migrate", "-f", Path]) -> 
+  mig("all", true, [Path]);
 
-main(["migrate", Path]) ->
-  main(["migrate", "all", Path]);
+main(["migrate", "-f", Mode|Rest]) 
+when Mode == "all" 
+orelse Mode == "shard" 
+orelse Mode == "date" ->
+  mig(Mode, true, Rest);
 
 
-main(["migrate", "all", Path]) ->
-  init(),
-  Migrations = migrations(Path),
-  print_migrations(Migrations),
-  
-  ToMigrate = [{S,D} || {S,D,false} <- Migrations],
-  io:format("~n"),
-  _ = 
-  [try
-     io:format("migration ~s ~s~n", [Shard, Date]),
-     pulsedb_aggregator:migrate_day(minutes, Shard, Date, fun (R) -> chunk_migrated(R) end),
-     io:format("~n")
-   catch C:E -> 
-     io:format("[Error] ~p~n", [{C,E}])
-   end || {Shard, Date} <- ToMigrate],
-  
-  io:format("done~n"),
-  ok;
+main(["migrate", Path]) -> 
+  mig("all", false, [Path]);
 
- 
-main(["migrate", "shard", _Path]) ->
-  io:format("not implemented~n"),
-  halt(1);
-
-main(["migrate", "date", _Path]) ->
-  io:format("not implemented~n"),
-  halt(1);
+main(["migrate", Mode|Rest]) 
+when Mode == "all" 
+orelse Mode == "shard" 
+orelse Mode == "date" ->
+  mig(Mode, false, Rest);
 
 
 main(_) ->
-  io:format("~s [info|migrate] [all|shard|date] <path>~n", [escript:script_name()]),
+  F = fun(Args, "") ->
+          io:format("  ~s ~s~n", [?FILE, Args]);
+         (Args, Help) ->
+          io:format("  ~s ~s~n", [?FILE, Args]),
+          io:format("  \t  ~s~n~n", [Help])
+      end,
+  io:format("~nDB migration script ~n"),
+  io:format("-f flag means that migration will run even if minutes db already exists~n~n"),
+
+  F("info <path>","Prints information about all the shards, dates and migrations found"),
+
+  F("migrate [-f] <path>",""),
+  F("migrate [-f] all <path>", "Migrates everything under <path>"),
+  F("migrate [-f] shard <shard-path>", "Migrate all dates of <shard-path> (use it with unsharded db)"),
+  F("migrate [-f] date <shard-path> <date>", "Migrate <date> of <shard-path> (use it with unsharded db)"),
+
   halt(1).
 
 
+
+
+
+mig("all", Forced, [Path]) ->
+  init(),
+  Migrations = migrations(Path),
+  print_migrations(Migrations),
+  perform_migrations(Migrations, Forced),
+  ok;
+
+ 
+mig("shard", Forced, [Path]) ->
+  case is_valid_shard(Path) of
+    false -> 
+      io:format("~s is not a valid db shard", [Path]),
+      halt(1);
+    true ->
+      Migrations = shard_migrations(Path),
+      print_migrations(Migrations),
+      perform_migrations(Migrations, Forced),
+      ok
+  end;
+
+
+mig("date", Forced, [Path, Date]) ->
+  case is_valid_db(seconds, Path, Date) of
+    false -> 
+      io:format("~s is not a valid db", [Path]),
+      halt(1);
+    true ->
+      Migrations = db_migrations(Path, Date),
+      print_migrations(Migrations),
+      perform_migrations(Migrations, Forced),
+      ok
+  end.
+
+
+
+
+
+
+
+
+
 chunk_migrated({ok, Chunk}) ->
-  io:format("  ~p\tok~n",[Chunk]);
+  io:format(" ~p ",[Chunk]);
 
 chunk_migrated({error, Chunk, E}) ->
-  io:format("  ~p\terror: ~p~n",[Chunk, E]).
+  io:format("~n  ~p\terror: ~p~n",[Chunk, E]).
 
 
 
 migrations(Path) ->
   Shards0 = shards(Path),
-  Shards1 = lists:flatmap(fun (Shard) ->
-    Dates = dates(seconds, Shard),
-    [{Shard, Date, has_minutes(Shard, Date)} || Date <- Dates]
-  end, Shards0),
-
+  Shards1 = lists:flatmap(fun (Shard) -> shard_migrations(Shard) end, Shards0),
   Shards2 = lists:reverse(lists:keysort(2, Shards1)),
   lists:keysort(3, Shards2).
+
+shard_migrations(Shard) ->
+  Dates = dates(seconds, Shard),
+  DBs0 = lists:flatmap(fun (Date) -> db_migrations(Shard, Date) end, Dates),
+  DBs1 = lists:reverse(lists:keysort(2, DBs0)),
+  lists:keysort(3, DBs1).
+
+db_migrations(Shard, Date) ->
+  [{Shard, Date, has_minutes(Shard, Date)}].
+
+
+
+
+perform_migrations(Migrations) ->
+  perform_migrations(Migrations, false).
+
+perform_migrations(Migrations, Forced) ->
+  ToMigrate = [{S,D} || {S,D,AlreadyDone} <- Migrations, Forced orelse (not AlreadyDone)],
+  io:format("~n"),
+  _ = 
+    [try
+       io:format("migration ~s ~s~n", [Shard, Date]),
+       pulsedb_aggregator:migrate_day(minutes, Shard, Date, fun (R) -> chunk_migrated(R) end),
+       io:format("~n")
+     catch C:E -> 
+         io:format("[Error] ~p~n", [{C,E}])
+     end || {Shard, Date} <- ToMigrate],
+
+  io:format("done~n"),
+  ok.
+
 
 print_migrations(Migrations) ->
   io:format("migrations:~n"),
@@ -99,7 +171,7 @@ print_migrations(Migrations) ->
      end,
      io:format("  [~s] ~s\t~s~n", [Status,S,D])
    end || {S,D,HasM} <- Migrations],
-  io:format("~n").
+  ok.
 
 
 
