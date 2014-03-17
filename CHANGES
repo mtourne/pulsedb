@@ -2,6 +2,7 @@ pulsedb (0.6)
 
   * reduce memory usage on long queries
   * fix big number packing on disk
+  * minute storage
 
 pulsedb (0.5)
 
