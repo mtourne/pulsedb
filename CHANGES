@@ -1,3 +1,7 @@
+pulsedb (0.6.1)
+
+  * migration fix
+
 pulsedb (0.6)
 
   * reduce memory usage on long queries
