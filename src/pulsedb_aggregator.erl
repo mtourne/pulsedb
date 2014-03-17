@@ -8,7 +8,10 @@ migrate(TargetResolution, From, To, Path) ->
   Url = iolist_to_binary(["file://", Path]),
   {ok, Source} = pulsedb:open(undefined, [{url, Url}]),
   {ok, Target} = pulsedb:open(undefined, [{url, Url}, {resolution, TargetResolution}]),
-  aggregate(TargetResolution, From, To, Source, Target).
+  case aggregate(TargetResolution, From, To, Source, Target) of
+    {ok, Target1} -> pulsedb:close(Target1);
+    Other -> Other
+  end.
 
 
 migrate_day(TargetResolution, Path, Date) ->
@@ -29,7 +32,10 @@ migrate_day(TargetResolution, Path, Date, NotifyFn) ->
      From = DateUTC + H*Step,
      To = DateUTC + (H+1)*Step - 1,
      try
-       pulsedb_aggregator:aggregate(TargetResolution, From,To,Source, Target),
+       case aggregate(TargetResolution, From, To, Source, Target) of
+         {ok, Target1} -> pulsedb:close(Target1);
+         Other -> Other
+       end,
        erlang:garbage_collect(self()),
        NotifyFn({ok, H}),
        ok
