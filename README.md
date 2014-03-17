@@ -67,7 +67,7 @@ Writing data
     ], my_database).
 
 
-Also you always has preconfigured memory database:
+Also you always have preconfigured memory database:
 
     pulsedb:append({input, 1378950600, 432423, [{host,<<"host1.local">>,{iface,<<"eth0">>}}]}, memory).
 
