@@ -2,15 +2,19 @@ Pulsedb
 =======
 
 
-This library is a storage for time series. You can use it for storing metrics like network usage, load, etc..
+This is library and a server a storage for time series. You can use it for storing metrics like network usage, load, etc..
+
+You can use it as an embedded library for Erlang servers or use it as a standalone HTTP server.
 
 
 Data model
 ----------
 
-All data is organized in metrics. Metric is a composition of name and tags.
+All data is organized in metrics. Metric is a composition of name and tags:
 
-So each measured data point is identified by metric and UTC of this measurement.
+    out_speed interface=eth0,host=host1.myservice.com
+
+Each measured data point is identified by metric and UTC of this measurement.
 
 Pulsedb writes data to files sharded by date. Cleanup of old data is done by deleting files with old date.
 
@@ -151,7 +155,118 @@ but also to some opened pulsedb file or network server.
 Server mode
 ===========
 
-Here will go description for server mode.
+
+Installation
+------------
+
+You can install this server from a debian package or compile it running: 
+
+    make
+
+Erlang R16B02 minimal is required.
+
+
+Configuration
+-------------
+
+Next you need to copy config file: priv/pulsedb.config.sample to priv/pulsedb.config
+
+
+Data collecting
+---------------
+
+
+Now you need to start collecting data.  
+
+Pulsedb is using extension on top of HTTP to be able to hide behind nginx http server.
+
+First you need to pass HTTP handshake with Upgrade header.
+
+Client sends:
+
+    CONNECT /api/v1/pulse_push HTTP/1.1
+    Host: pulse.myservice.com
+    Pulsedb-Api-Key: SOMEKEY
+    Connection: Upgrade
+    Upgrade: application/timeseries-text
+
+
+Value of SOMEKEY will be explained below, but it is not required when no <code>{key, "...."}.</code> is set in config file.
+
+Now server will send:
+
+    HTTP 101 Upgraded
+    upgrade: application/timeseries-text
+
+If you see this, you have passed handshake. After this you need to use our special text-based protocol which is rather simple.
+
+This protocol is statefull, so you must wrap socket it in some structure that will remember following things:
+
+  * list of defined metrics
+  * current base UTC
+
+Base UTC is a UTC that will be a base for first sent metric. Usually you need to send:
+
+    utc 1395139525
+
+to socket. Server will not reply you anything, so continue sending data.
+
+Next you need to define some metric in this connection:
+
+    metrict 1 out_speed{interface=eth0,host=host1.myservice.com}
+
+Value "1" is defined by client, must be integer and will be used later to identify metric data point.
+
+After you have told base UTC and defined metric, you can send data to server:
+
+    1 2 50
+
+These numbers are read so:
+
+    METRICT_ID DELTA_FROM_PREVIOUS_UTC VALUE
+
+<code>DELTA_FROM_PREVIOUS_UTC</code> is not just a delta from base UTC, but it is an accumulated delta from previous UTC.
+<code>VALUE</code> is a number with postfix: 0, 50, 10K, 45K, 2M, 250M, 10G, 40T. It is a simple way to reduce network traffic,
+because usually if you want to tell how many megabytes, you are not interested in kilobytes.
+
+
+So if you send series of metrics they can look so:
+
+    utc 1395139525
+    metrict 1 out_speed{interface=eth0,host=host1.myservice.com}
+    metrict 2 out_speed{interface=eth0,host=host2.myservice.com}
+    1 0 500K
+    2 0 120K
+    1 1 560K
+    2 0 125K
+    1 1 650K
+    2 0 70K
+
+
+The last command in this protocol is a ping. It MUST be used periodically to synchronize with remote server:
+
+    ping
+
+After this command client must wait for a "pong" response. After client receives pong response, it can be sure that
+all data has been written.
+
+
+
+Authenticating and data sharding
+--------------------------------
+
+
+Monitoring pushers
+------------------
+
+
+Data retrieving
+---------------
+
+
+Graphic resolver
+----------------
+
 
 
 
