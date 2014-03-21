@@ -74,16 +74,18 @@ validate({Name,UTC,Value,Tags} = Tick) ->
   is_binary(Name) orelse is_atom(Name) orelse error({wrong_name,Tick}),
   is_integer(UTC) andalso UTC >= 0 andalso UTC =< 4294967295 orelse error({wrong_utc,Tick}),
   is_list(Tags) orelse error({wrong_tags,Tick}),
-  Tags1 = [{case K of
-    aggregator -> K;
-    _ -> to_b(K)
-  end,to_b(V)} || {K,V} <- Tags],
+
+  Tags1 = [make_tag(T) || {_,_}=T <- Tags],
   V1 = if
     Value < 0 -> 0;
     true -> Value
   end,
   {to_b(Name),UTC,V1,Tags1}.
 
+make_tag({K,V}=T) when is_binary(K), is_binary(V) -> T;
+make_tag({aggregator,V}) -> {aggregator, to_b(V)};
+make_tag({K,V}) -> {to_b(K), to_b(V)}.
+   
 
 
 

@@ -4,7 +4,7 @@
 
 
 -export([parse/1, date_path/1]).
-
+-define(EPOCH, 62167219200).
 
 
 to_i(L) when is_list(L) -> list_to_integer(L);
@@ -34,12 +34,24 @@ parse(Bin) when is_binary(Bin) ->
 
 
 
-date_path(UTC) when is_integer(UTC) ->
-  {Day,_} = date_time(UTC),
-  date_path(Day);
+date_path({{Year,Month,Day},_}) ->
+  <<(pad4(Year))/binary, "/", (pad2(Month))/binary, "/", (pad2(Day))/binary>>;
 
-date_path({Y,M,D}) ->
-  iolist_to_binary(io_lib:format("~4..0B/~2..0B/~2..0B", [Y,M,D])).
+date_path({Year,Month,Day}) ->
+  date_path({{Year,Month,Day},{0,0,0}});
+
+date_path(UTC) when is_integer(UTC) ->
+  date_path(date(UTC)).
+
+date(Timestamp) ->
+  calendar:gregorian_seconds_to_datetime(Timestamp + ?EPOCH).
+
+
+
+pad4(I) when I >= 1000 andalso I =< 9999 -> integer_to_binary(I).
+
+pad2(I) when I >= 0 andalso I =< 9 -> <<"0", (integer_to_binary(I))/binary>>;
+pad2(I) when I >= 10 andalso I =< 99 -> integer_to_binary(I).
 
 
 

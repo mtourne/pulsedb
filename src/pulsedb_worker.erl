@@ -232,20 +232,9 @@ handle_info({aggregate, Resolution}, #worker{seconds_timer = Timer0, db_layers =
       
       Target0 = find_db(TargetResolution, DBs),
       {ok, Target1} = pulsedb:append(Ticks, Target0),
-      DBs1 = update_db(TargetResolution, Target1, DBs),
-%       [begin
-%       Ticks = pulsedb_memory:merge_seconds_data(M, UTC),
-%       lager:info("TICKS ~p", [{M, Ticks}])
-%        end || M <- Metrics],
-
-%       Target0 = find_db(TargetResolution, DBs),
-%       {ok, Target1} = pulsedb:append(Ticks, Target0),
-      
-%       From = first_utc(Now, TargetResolution),
-%       To = last_utc(Now, TargetResolution),
-%       {ok, Target1} = pulsedb_aggregator:aggregate(Resolution, From, To, Source0, Target0),
-%       DBs1 = update_db(TargetResolution, Target1, DBs),
-      W#worker{db_layers = DBs1}
+      pulsedb:close(Target1),
+      erlang:garbage_collect(self()),
+      W
   end,
 
   W2 = start_timer(Resolution, W1),
@@ -275,22 +264,17 @@ next_layer(_,_) ->
 first_utc(UTC, minutes) -> (UTC div 60) * 60;
 first_utc(UTC, hours)   -> (UTC div 3600) * 3600.
   
-last_utc(UTC, minutes) -> ((UTC div 60) + 1) * 60 - 1;
-last_utc(UTC, hours)   -> ((UTC div 3600) + 1) * 3600 - 1.
-
-
 
 find_db(Resolution, Layers) ->
-  proplists:get_value(Resolution, Layers).
+  {_,DB} = lists:keyfind(Resolution, 1, Layers),
+  DB.
 
 update_db(Resolution, DB, Layers0) ->
-  Layers1 = proplists:delete(Resolution, Layers0),
-  [{Resolution, DB}|Layers1].
+  lists:keystore(Resolution, 1, Layers0, {Resolution, DB}).
 
 
 start_timer(seconds, #worker{}=W) ->
   {_,Delay} = pulsedb:current_minute(),
-  %lager:info("AGGREGATION: ~p NEXT START AFTER ~p", [seconds, Delay]),
   Timer = erlang:send_after(Delay, self(), {aggregate, seconds}),
   W#worker{seconds_timer = Timer};
 

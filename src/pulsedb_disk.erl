@@ -229,9 +229,10 @@ source_name(Name, Tags, #disk_db{cached_source_names = SourceNames} = DB) ->
     {_, SourceName} ->
       {SourceName, DB};
     false ->
+      {_,Sec,_} = erlang:now(),
+      Cached =  length(SourceNames),
       SourceName = metric_name(Name, Tags),
-      CachedSourceNames = if 
-        length(SourceNames) > 100 -> [{{Name,Tags},SourceName}] ++ lists:sublist(SourceNames, 90);
+      CachedSourceNames = if Sec rem 10 == 0 andalso Cached > 100 -> [{{Name,Tags},SourceName}] ++ lists:sublist(SourceNames, Cached div 2);
         true -> [{{Name,Tags},SourceName}] ++ SourceNames
       end,
       {SourceName, DB#disk_db{cached_source_names = CachedSourceNames}}
@@ -323,8 +324,8 @@ open_hour_if_required(SourceId, UTC, #disk_db{config_fd = ConfigFd, data_fd = Da
   ChunkNo = Partition:chunk_number(UTC, Config),
   
   #source{block_offsets = Offsets, name = Name, offsets_offset = O} = Source = lists:keyfind(SourceId,#source.id,Sources),
-  case proplists:get_value(ChunkNo, Offsets) of
-    Offset when is_number(Offset) andalso Offset >= 0 ->
+  case lists:keyfind(ChunkNo, 1, Offsets) of
+    {_, Offset} when is_number(Offset) andalso Offset >= 0 ->
       DB;
     _ ->
       {ok, DataPos} = file:position(DataFd, eof),
