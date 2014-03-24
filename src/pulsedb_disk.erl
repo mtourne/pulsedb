@@ -490,7 +490,7 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
     Ref = make_ref(),
                            
     ReadFn = fun() ->
-      Ticks2 = lists:flatmap(fun(#source{block_offsets = Offsets}) ->
+      Ticks2 = lists:map(fun(#source{block_offsets = Offsets}) ->
         case lists:keyfind(H, 1, Offsets) of
           {ChunkN, Offset} ->
             case file:pread(DataFd, Offset bsl ChunkBits + TickSize*TickOffset, TickSize*Limit) of
@@ -503,15 +503,12 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
             end;
           false ->
             []
-        end        
+        end
       end, ReadSources),
-
-      Ticks3 = lists:sort(Ticks2),
-      Ticks4 = pulsedb_data:aggregate(proplists:get_value(aggregator,Query), Ticks3),
+      Ticks4 = aggregate(proplists:get_value(aggregator,Query), [L || L <- Ticks2, L =/= []]),
       Self ! {chunk_data, Ref, Ticks4}
     end,
 
-                           
     ReaderPid = spawn(ReadFn),
     receive
       {chunk_data, Ref, ChunkTicks} ->
@@ -528,6 +525,14 @@ read0(Name, Query, #disk_db{sources = Sources, data_fd = DataFd, date = Date, mo
   Ticks5 = pulsedb_data:downsample(proplists:get_value(downsampler,Query), Ticks1),
   {ok, Ticks5, DB}.
 
+       
+aggregate(_,[]) -> [];
+aggregate(_,[[]|_]) -> [];
+aggregate(Agg, List1) ->
+  {List2, Heads} = lists:mapfoldl(fun( [{_, H}|T], Acc) ->  {T, [H|Acc]}  end, [], List1), 
+  {Utc,_} = hd(hd(List1)),
+  Result = pulsedb_data:aggregate_values(Agg, Heads),
+  [{Utc, Result} | aggregate(Agg, List2) ].
 
 ensure_dead(Pid) ->
   exit(Pid, kill).

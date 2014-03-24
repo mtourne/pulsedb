@@ -1,7 +1,16 @@
 -module(pulsedb_data).
 -export([shift_value/1, unshift_value/1, unpack_ticks/2, unpack_ticks/3]).
--export([interpolate/4, aggregate/2, downsample/2]).
+-export([interpolate/4, aggregate/2, downsample/2, aggregate_values/2]).
 
+aggregate_values(Aggegator, Values) ->
+  Agg = case Aggegator of
+    undefined -> fun sum/1;
+    <<"sum">> -> fun sum/1;
+    <<"avg">> -> fun avg/1;
+    <<"max">> -> fun max/1;
+    Else -> error({unknown_aggregator,Else})
+  end,
+  Agg(Values).
 
 aggregate(Aggegator, Ticks) ->
   Agg = case Aggegator of
