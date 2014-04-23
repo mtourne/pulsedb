@@ -28,6 +28,9 @@
 
   config_fd :: file:fd(),
   data_fd :: file:fd(),
+
+  write_delay,
+  buffer = [],
   
   config :: storage_config()
 }).
@@ -65,7 +68,12 @@ open(<<"file://", Path/binary>>, Options) ->
 open(Path, Options) when is_binary(Path) ->
   Resolution = proplists:get_value(resolution, Options, seconds),
   Config = resolution_config(Resolution),
-  {ok, #disk_db{path = Path, config = Config}}.
+  WriteDelay = case proplists:get_value(write_delay, Options) of
+    true -> 2000;
+    WriteDelayCount when is_integer(WriteDelayCount) -> WriteDelayCount;
+    _ -> undefined
+  end,
+  {ok, #disk_db{path = Path, config = Config, write_delay = WriteDelay}}.
 
 
 resolution_config(minutes) ->
@@ -122,7 +130,7 @@ create_new_db(#disk_db{path = Path, date = Date, mode = append} = DB) when Date 
     {error, Reason2} -> throw({error,{open_config_failed,ConfigPath,Reason2}})
   end,
 
-  {ok, DataFd} = file:open(DataPath, Opts ++ [{delayed_write, 128000, 5000}]),
+  {ok, DataFd} = file:open(DataPath, Opts),
 
   DB#disk_db{path = Path, config_fd = ConfigFd, data_fd = DataFd, sources = []}.
 
@@ -157,7 +165,8 @@ open_existing_db(#disk_db{path = Path, date = Date, mode = Mode, config = Config
 
 
 
-sync(#disk_db{config_fd = ConfigFd, data_fd = DataFd} = DB) ->
+sync(#disk_db{config_fd = ConfigFd, data_fd = DataFd, buffer = Buffer} = DB) ->
+  file:pwrite(DataFd, Buffer),
   case ConfigFd of
     undefined -> ok;
     _ -> file:sync(ConfigFd)
@@ -166,7 +175,7 @@ sync(#disk_db{config_fd = ConfigFd, data_fd = DataFd} = DB) ->
     undefined -> ok;
     _ -> file:sync(DataFd)
   end,
-  {ok, DB}.
+  {ok, DB#disk_db{buffer = []}}.
 
 
 -spec append(pulsedb:tick() | [pulsedb:tick()], pulsedb:db()) -> pulsedb:db().
@@ -295,7 +304,7 @@ metric_name(Name, Tags) ->
 to_b(Atom) when is_atom(Atom) -> atom_to_binary(Atom, latin1);
 to_b(Bin) when is_binary(Bin) -> Bin.
 
-append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd} = DB) ->
+append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd, write_delay = WriteDelay, buffer = Buffer} = DB) ->
   #disk_db{sources = Sources, 
            config = #storage_config{partition_module = Partition,
                                     chunk_bits = ChunkBits,
@@ -307,10 +316,20 @@ append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd} = DB) ->
   {_, ChunkOffset} = lists:keyfind(Chunk, 1, Offsets),
   Offset = (ChunkOffset bsl ChunkBits) + Tick*TickSize,
 
-  ok = file:pwrite(DataFd, Offset, pulsedb_data:shift_value(Value)),
-  {ok, DB1}.
-
-
+  case WriteDelay of
+    undefined ->
+      ok = file:pwrite(DataFd, Offset, pulsedb_data:shift_value(Value)),
+      {ok, DB1};
+    _ ->
+      Buffer1 = [{Offset,pulsedb_data:shift_value(Value)}|Buffer],
+      case length(Buffer1) of
+        Len when Len > WriteDelay -> 
+          file:pwrite(DataFd, Buffer1),
+          {ok, DB1#disk_db{buffer = []}};
+        _ ->
+          {ok, DB1#disk_db{buffer = Buffer1}}
+      end
+  end.
 
 
 

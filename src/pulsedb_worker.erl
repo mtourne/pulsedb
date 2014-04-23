@@ -94,7 +94,6 @@ init([Name, Options0]) ->
   
   Resolutions0 = proplists:get_value(resolutions, Options0, [seconds]),
   Resolutions = lists:usort([seconds|Resolutions0]),
-  lager:info("Resolutions ~p", [Resolutions]),
   Shard = case proplists:get_value(shard, Options0) of
     undefined -> [];
     Val -> [{shard, Val}]
