@@ -69,7 +69,7 @@ init_per_suite(Config) ->
     ]}]
   end,
   
-  {ok, L} = ranch:start_listener(fake_pulsedb, 1, ranch_tcp, [{port,Port}], cowboy_protocol, [{env, [
+  {ok, _L} = ranch:start_listener(fake_pulsedb, 1, ranch_tcp, [{port,Port}], cowboy_protocol, [{env, [
     {dispatch, cowboy_router:compile(Dispatch(DB))}
   ]}]),
 
@@ -81,7 +81,7 @@ init_per_suite(Config) ->
       {verify,verify_none},
       {ciphers, ciphers()}],
 
-  {ok, L2} = ranch:start_listener(fake_pulsedb_ssl, 1, ranch_ssl, [{port,Port+1}|SslTransOpts], cowboy_protocol, [{env, [
+  {ok, _L2} = ranch:start_listener(fake_pulsedb_ssl, 1, ranch_ssl, [{port,Port+1}|SslTransOpts], cowboy_protocol, [{env, [
     {dispatch, cowboy_router:compile(Dispatch(DB_ssl))}
   ]}]),
 
@@ -98,9 +98,11 @@ ciphers() ->
 
 
 end_per_suite(Config) ->
+  error_logger:delete_report_handler(error_logger_tty_h),
   erlang:exit(whereis(netpush_db),shutdown),
   R = proplists:get_value(r,Config),
   [application:stop(App) || App <- lists:reverse(proplists:get_value(apps,R))],
+  error_logger:add_report_handler(error_logger_tty_h),
   Config.
 
 
@@ -157,7 +159,7 @@ append_and_read(_) ->
    {130,10},
    {140,3}] = [T || {_,V}=T <- ResultTicks2, V > 0],
 
-  {ok, ResultTicks3, ReadDB4} = pulsedb:read(<<"input">>, [{from, "1970-01-01"},{to,"1971-01-02"}], ReadDB3),
+  {ok, ResultTicks3, _ReadDB4} = pulsedb:read(<<"input">>, [{from, "1970-01-01"},{to,"1971-01-02"}], ReadDB3),
   [{120,7},
    {130,10},
    {140,3},
@@ -253,10 +255,8 @@ netpush_403(_) ->
 netpush_append(_) ->
   Apikey = pulsedb_netpush_auth:make_api_key(key(), [{<<"point">>, <<"p1">>}]),
   
-    ct:pal("E ~p", [Apikey]),
-  ct:break("ass"),
   
-  {ok, DB1} = pulsedb:open(netpush_client, [{url, "pulse://localhost:6801/"},{api_key,Apikey}]),
+  {ok, _DB1} = pulsedb:open(netpush_client, [{url, "pulse://localhost:6801/"},{api_key,Apikey}]),
 
   Ticks1 = [
     {<<"input">>, 120, 6, [{name, <<"source-net1">>}]},
@@ -317,7 +317,7 @@ netpush_append(_) ->
 
 netpush_ssl_append(_) ->
   Apikey = pulsedb_netpush_auth:make_api_key(key(), [{<<"point">>, <<"p2">>}]),
-  {ok, DB1} = pulsedb:open(netpush_ssl_client, [{url, "pulses://localhost:6802/"},{api_key,Apikey}]),
+  {ok, _DB1} = pulsedb:open(netpush_ssl_client, [{url, "pulses://localhost:6802/"},{api_key,Apikey}]),
 
   Ticks1 = [
     {<<"input">>, 120, 6, [{name, <<"source-ssl1">>}]},
@@ -430,7 +430,7 @@ worker_cleanup(_) ->
 
 
 info(_) ->
-  {ok, DB0} = pulsedb:open(test_info_db, <<"test/v2/info">>),
+  {ok, _DB0} = pulsedb:open(test_info_db, <<"test/v2/info">>),
 
   Ticks1 = [
     {<<"input">>,  21,  5, [{name, <<"source1">>}]},
@@ -534,7 +534,7 @@ collector(_) ->
 
 
 collector_with_backend(_) ->
-  {ok, Pid0} = pulsedb:open(test_pulse_saver1, [{url, "file://test/test_pulse_saver1"}]),
+  {ok, _Pid0} = pulsedb:open(test_pulse_saver1, [{url, "file://test/test_pulse_saver1"}]),
 
   {Now,_} = pulsedb:current_second(),
   N1 = integer_to_list(Now - 60),
@@ -584,7 +584,7 @@ collector_with_dead_backend(_) ->
   {Now,_} = pulsedb:current_second(),
   N1 = integer_to_list(Now - 60),
   N2 = integer_to_list(Now + 60),
-  Range = "from="++N1++",to="++N2,
+  _Range = "from="++N1++",to="++N2,
 
   {ok, [], _} = pulsedb:read(<<"max:test3">>, seconds),
   {ok, Pid} = pulsedb:collect(<<"test_collector3">>, ?MODULE, {test3,40}, [{copy, test_pulse_saver3}]),
@@ -661,7 +661,7 @@ downsampling(_) ->
 
 
 replicator(_) ->
-  Self = self(),
+  _Self = self(),
   pulsedb:replicate(seconds),
   List = ets:tab2list(pulsedb_replicators),
   {seconds,_} = lists:keyfind(self(),2,List),
@@ -807,9 +807,13 @@ aggregation(_) ->
     {<<"input">>, 65,  200, [{name, <<"source1">>}]},
     {<<"input">>, 66,  200, [{name, <<"source1">>}]}],
   
-  {ok, DB1} = pulsedb:append(Ticks1++Ticks2, DB0),
+  {ok, _DB1} = pulsedb:append(Ticks1++Ticks2, DB0),
   {ok, DBminutes1} = pulsedb_aggregator:aggregate(minutes, 0, 120, DB0, DBminutes0),
   pulsedb:close(DBminutes1),
   
   {ok, [{0, 20}, {60, 10}|_], _} = pulsedb:read(<<"input">>, [{from, 0},{to, 120}], DBminutes0),
   {ok, [{0, 300}, {60, 200}|_], _} = pulsedb:read(<<"max-input">>, [{from, 0},{to, 120}], DBminutes0).
+
+
+
+
