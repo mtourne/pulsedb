@@ -6,8 +6,14 @@ parse(Str) when is_binary(Str) ->
   parse(binary_to_list(Str));
 
 parse(Str) when is_list(Str) ->
-  {ok, Tokens, _} = query_lexer:string(Str),
-  {ok, Query} = query_parser:parse(Tokens),
-  Query.
+  case query_lexer:string(Str) of
+    {ok, Tokens, _} ->
+      case query_parser:parse(Tokens) of
+        {ok, Query} -> Query;
+        {error, _} = ParseError -> ParseError
+      end;
+    {error, _} = LexerError -> LexerError
+  end.
+
 
   

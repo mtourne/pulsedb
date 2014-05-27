@@ -12,8 +12,12 @@
  }).
 
 parse(Query) ->
-  {A,D,N,T} = pulsedb_parser:parse(Query),
-  #query{aggregator=A, downsampler=D, name=N, tags=lists:sort(T)}.
+  case pulsedb_parser:parse(Query) of
+    {A,D,N,T} ->
+      #query{aggregator=A, downsampler=D, name=N, tags=lists:sort(T)};
+    {error, _} = Error ->
+      Error
+  end.
 
 
 render(undefined) -> 

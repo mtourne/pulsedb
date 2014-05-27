@@ -9,9 +9,14 @@
 
 
 subscribe(Query0, Tag) ->
-  Query1 = pulsedb_query:parse(Query0),
-  Query = pulsedb_query:remove_tag([from,to],Query1),
-  gen_server:call(?MODULE, {subscribe, self(), Query, Tag}).
+  case pulsedb_query:parse(Query0) of
+    {error, _} = Error ->
+      Error;
+    Query1 ->
+      Query = pulsedb_query:remove_tag([from,to],Query1),
+      gen_server:call(?MODULE, {subscribe, self(), Query, Tag})
+  end.
+
 
 
 unsubscribe(Tag) ->
