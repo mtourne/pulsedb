@@ -29,6 +29,24 @@ parse(<<Y:4/binary, "/", Mon:2/binary, "/", D:2/binary>>) ->
 parse(<<Y:4/binary, "-", Mon:2/binary, "-", D:2/binary, " ", H:2/binary, ":", Min:2/binary, ":", S:2/binary>>) ->
   utc({{to_i(Y), to_i(Mon), to_i(D)}, {to_i(H),to_i(Min),to_i(S)}});
 
+parse(<<"-", Bin/binary>>) ->
+  T = parse(Bin),
+  utc(erlang:now()) - T;
+
+parse(<<T:1/binary, "m">>) -> 60*binary_to_integer(T);
+parse(<<T:2/binary, "m">>) -> 60*binary_to_integer(T);
+parse(<<T:3/binary, "m">>) -> 60*binary_to_integer(T);
+
+
+parse(<<T:1/binary, "h">>) -> 3600*binary_to_integer(T);
+parse(<<T:2/binary, "h">>) -> 3600*binary_to_integer(T);
+parse(<<T:3/binary, "h">>) -> 3600*binary_to_integer(T);
+
+parse(<<T:1/binary, "d">>) -> 86400*binary_to_integer(T);
+parse(<<T:2/binary, "d">>) -> 86400*binary_to_integer(T);
+parse(<<T:3/binary, "d">>) -> 86400*binary_to_integer(T);
+
+
 parse(Bin) when is_binary(Bin) ->
   binary_to_integer(Bin).
 

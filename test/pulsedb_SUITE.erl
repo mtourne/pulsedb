@@ -500,6 +500,8 @@ parse_query(_) ->
   {<<"max">>, undefined, <<"cpu">>, [{<<"host">>,<<"flu1">>},{from,<<"123">>},{to,<<"456">>}]} = pulsedb:parse_query("max:cpu{host=flu1,from=123,to=456}"),
 
   {<<"max">>, undefined, <<"cpu">>, [{<<"host">>,<<"flu1">>},{from,<<"1970-01-01">>},{to,<<"456">>}]} = pulsedb:parse_query("max:cpu{host=flu1,from=1970-01-01,to=456}"),
+
+  {undefined, undefined, <<"cpu">>, [{from,<<"-500">>}]} = pulsedb:parse_query("cpu{from=-500}"),
   ok.
 
 
