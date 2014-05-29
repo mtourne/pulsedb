@@ -324,12 +324,22 @@ append_data(SourceId, UTC, Value, #disk_db{data_fd = DataFd, write_delay = Write
       Buffer1 = [{Offset,pulsedb_data:shift_value(Value)}|Buffer],
       case length(Buffer1) of
         Len when Len > WriteDelay -> 
-          file:pwrite(DataFd, Buffer1),
+          file:pwrite(DataFd, collapse(Buffer1)),
           {ok, DB1#disk_db{buffer = []}};
         _ ->
           {ok, DB1#disk_db{buffer = Buffer1}}
       end
   end.
+
+
+collapse(Buffer) ->
+  collapse0(lists:sort(Buffer)).
+
+collapse0([{Offset1,Bin1},{Offset2,Bin2}|Chunks]) when Offset1 + size(Bin1) == Offset2 ->
+  collapse0([{Offset1, <<Bin1/binary, Bin2/binary>>}|Chunks]);
+
+collapse0([{Offset,Bin}|Chunks]) -> [{Offset,Bin}|collapse0(Chunks)];
+collapse0([]) -> [].
 
 
 
