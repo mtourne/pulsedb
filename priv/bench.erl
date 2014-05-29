@@ -1,8 +1,12 @@
 #!/usr/bin/env escript
+%%
 
 -mode(compile).
 
--include("include/pulsedb.hrl").
+
+main(["worker"]) ->
+  ok;
+
 
 
 main([]) ->
@@ -56,8 +60,9 @@ write_minute([], _, DB) ->
   DB;
 
 write_minute([Source|Sources], Base, DB) ->
-  Ticks = [ #tick{name = Source, utc = Base+I, value = [
-    {input,13423424324+random:uniform(4321432)},{output,134224324+random:uniform(4332)}
-  ]} || I <- lists:seq(0,59)],
+  Ticks = lists:flatmap(fun(I) ->
+    [{<<"input">>, Base+I, 13423424324+random:uniform(4321432), [{source,Source}]},  
+      {<<"output">>, Base+I, 134224324+random:uniform(4332), [{source, Source}]}]
+  end, lists:seq(0,59)),
   {ok, DB1} = pulsedb:append(Ticks, DB),
   write_minute(Sources, Base, DB1).
