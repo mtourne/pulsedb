@@ -11,7 +11,15 @@ start_link(Name, Options) ->
 
 
 append(Ticks, DB) when is_pid(DB) ->
-  gen_server:call(DB, {append, Ticks, seconds});
+  case process_info(DB, message_queue_len) of
+    {message_queue_len, Count} when Count < 20 ->
+      gen_server:call(DB, {append, Ticks, seconds});
+    {message_queue_len, Count} when Count < 4000 ->
+      DB ! {append, Ticks, seconds},
+      {ok, DB};
+    _ ->
+      {ok, DB}
+  end;
 
 append(Ticks, DB) when is_atom(DB) ->
   case whereis(DB) of
@@ -146,22 +154,9 @@ init_timers(Resolutions, #worker{}=W) ->
   end.
       
 
-
-handle_call({append, Ticks, Resolution}, _, #worker{db_layers = DBs, stop_timeout = StopTimeout, stop_timer = OldTimer} = W) ->
-  DB = find_db(Resolution, DBs),
-  case pulsedb:append(Ticks, DB) of
-    {ok, DB1} ->
-      StopTimer = case StopTimeout of
-        undefined -> undefined;
-        _ ->
-          erlang:cancel_timer(OldTimer),
-          erlang:send_after(StopTimeout, self(), stop)
-      end,
-      DBs1 = update_db(Resolution, DB1, DBs),
-      {reply, {ok, self()}, W#worker{db_layers = DBs1, stop_timer = StopTimer, stop_timeout = StopTimeout}};
-    {error, E} ->
-      {stop, normal, {error, E}, W}
-  end;
+handle_call({append, Ticks, Resolution}, _, #worker{} = W) ->
+  {noreply, W1} = handle_info({append, Ticks, Resolution}, W),
+  {reply, {ok, self()}, W1};
 
 
 handle_call({read, Name, Query, Resolution}, _, #worker{db_layers = DBs} = W) ->
@@ -186,6 +181,26 @@ handle_call(sync, _, #worker{db_layers = DBs} = W) ->
 
 handle_call(stop, _, #worker{} = W) ->
   {stop, normal, ok, W}.
+
+
+
+
+
+handle_info({append, Ticks, Resolution}, #worker{db_layers = DBs, stop_timeout = StopTimeout, stop_timer = OldTimer} = W) ->
+  DB = find_db(Resolution, DBs),
+  case pulsedb:append(Ticks, DB) of
+    {ok, DB1} ->
+      StopTimer = case StopTimeout of
+        undefined -> undefined;
+        _ ->
+          erlang:cancel_timer(OldTimer),
+          erlang:send_after(StopTimeout, self(), stop)
+      end,
+      DBs1 = update_db(Resolution, DB1, DBs),
+      {noreply, W#worker{db_layers = DBs1, stop_timer = StopTimer}};
+    {error, _E} ->
+      {stop, normal, W}
+  end;
 
 
 
