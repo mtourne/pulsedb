@@ -352,7 +352,7 @@ open_hour_if_required(SourceId, UTC, #disk_db{config_fd = ConfigFd, data_fd = Da
         0 ->
           DataPos;
         _ ->
-          lager:error("Error with data file for ~p / ~p. Last offset is ~p", [DB#disk_db.path, DB#disk_db.date, DataPos]),
+          lager:error("Error with data file for ~p / ~p. Last offset is ~p, chunk size: ~p", [DB#disk_db.path, DB#disk_db.date, DataPos, ChunkSize]),
           ((DataPos div ChunkSize) + 1)*ChunkSize
       end,
       AdditionalInfo = case iolist_to_binary([Partition:block_path(UTC)," ", integer_to_list(ChunkNo), " ", Name]) of

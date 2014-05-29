@@ -1,5 +1,6 @@
 #!/usr/bin/env escript
 %%
+%%! -env ERL_LIBS ..:deps -smp disable
 
 -mode(compile).
 
@@ -10,12 +11,24 @@ main(["worker"]) ->
 
 
 main([]) ->
+  ConsoleFormat = [time, " ", pid, {pid, [" "], ""},
+    {media, ["[", media, "] "], ""},
+    {module, [module, ":", line, " "], ""},
+    message, "\n"
+  ],
+
+
+  application:load(lager),
+  application:set_env(lager,crash_log,undefined),
+  application:set_env(lager,handlers,[{lager_console_backend,[debug,{lager_default_formatter, ConsoleFormat}]}]),
+  lager:start(),
+
   code:add_pathz("ebin"),
   os:cmd("rm -rf benchdb"),
   SourceCount = 100,
   MinuteCount = 1440,
   T1 = erlang:now(),
-  {ok, DB1} = pulsedb:open("benchdb"),
+  {ok, DB1} = pulsedb:open("benchdb", [{write_delay,2000}]),
   Sources = [ <<"source", (integer_to_binary(I))/binary>> || I <- lists:seq(1,SourceCount)],
 
   DB2 = write_minutes(Sources, MinuteCount, DB1),
