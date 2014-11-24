@@ -53,13 +53,25 @@ parse(Bin) when is_binary(Bin) ->
 
 
 date_path({{Year,Month,Day},_}) ->
-  <<(pad4(Year))/binary, "/", (pad2(Month))/binary, "/", (pad2(Day))/binary>>;
+    <<(pad4(Year))/binary, "/", (pad2(Month))/binary, "/", (pad2(Day))/binary>>;
 
-date_path({Year,Month,Day}) ->
-  date_path({{Year,Month,Day},{0,0,0}});
+date_path(Date = {Year,Month,Day}) ->
+    lager:debug("Chunk date is: ~p", [Date]),
+    date_path({{Year,Month,Day},{0,0,0}});
 
+%%% TODO (mtourne): deprec this
 date_path(UTC) when is_integer(UTC) ->
-  date_path(date(UTC)).
+    lager:warning("This interface is deprecated"),
+    date_path({seconds, UTC});
+
+date_path({milliseconds, TimestampMsec}) ->
+    date_path({seconds, TimestampMsec div 1000});
+
+date_path({seconds, TimestampSec}) ->
+    %% For the path on disk we're only interested
+    %% down to the second.
+    date_path(date(round(TimestampSec))).
+
 
 date(Timestamp) ->
   calendar:gregorian_seconds_to_datetime(Timestamp + ?EPOCH).
@@ -72,15 +84,23 @@ pad2(I) when I >= 0 andalso I =< 9 -> <<"0", (integer_to_binary(I))/binary>>;
 pad2(I) when I >= 10 andalso I =< 99 -> integer_to_binary(I).
 
 
-
-
+%%% deprec
 daystart(UTCms) when is_integer(UTCms) ->
-  % calendar:datetime_to_gregorian_seconds({Date, {0,0,0}})
-  % DaystartMilliSeconds = UTCms - calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}})*1000,
-  DayMS = timer:hours(24),
-  (UTCms div DayMS)*DayMS.
+    lager:warning("Calling deprec interface."),
+%%% todo print stack trace ?
+    daystart({milliseconds, UTCms})
+        ;
 
+daystart({seconds, TimeStampSec}) ->
+    daystart({milliseconds, TimeStampSec * 1000})
+        ;
 
+daystart({milliseconds, TimestampMsec}) ->
+%%% does integer div works on float ?
+%%% or do I need to call round first.
+    DayMS = timer:hours(24),
+    (TimestampMsec div DayMS)*DayMS
+        .
 
 % Convert milliseconds to seconds
 utc(UnixTime) when is_integer(UnixTime), UnixTime > 4000000000 ->
@@ -111,5 +131,3 @@ date_time(Timestamp) when is_number(Timestamp) ->
   GregSeconds_Zero = calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
   GregSeconds = GregSeconds_Zero + Timestamp,
   calendar:gregorian_seconds_to_datetime(GregSeconds).
-
-

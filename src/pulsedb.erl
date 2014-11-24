@@ -6,7 +6,7 @@
 -export_types([db/0, utc/0, source_name/0, tick/0]).
 
 
--export([open/1, open/2, append/2, read/3, read/2, close/1, sync/1, read_once/2]).
+-export([open/2, append/2, read/3, read/2, close/1, sync/1, read_once/2]).
 -export([info/1, parse_query/1]).
 
 -export([collect/3, collect/4, stop_collector/1]).
@@ -16,51 +16,32 @@
 -export([replicate/1]).
 
 
--spec open(Path::file:filename()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
-open(seconds) -> {ok, seconds};
-open(minutes) -> {ok, minutes};
-
-open(Path) ->
-  open(Path, []).
-
-
--spec open(Path::file:filename()|atom(), Options::list()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
-open(Path, Options) when is_list(Path) ->
-  open(undefined, [{url, <<"file://", (list_to_binary(Path))/binary>>}|Options]);
-
-open(Path, Options) when is_binary(Path) ->
-  open(undefined, [{url, <<"file://", Path/binary>>}|Options]);
-
-open(Name, Path) when is_atom(Name), is_binary(Path) ->
-  open(Name, [{url, <<"file://", Path/binary>>}]);
-
-open(Name, Options) when is_atom(Name) ->
-  case Name of
-    undefined ->
-      {value, {url, URL_}, Opts1} = lists:keytake(url, 1, Options),
-      URL = iolist_to_binary(URL_),
-      case URL of
-        <<"file://", _/binary>> -> pulsedb_disk:open(URL, Opts1);
-        <<"pulse://", _/binary>> -> pulsedb_netpush:open(URL, Opts1);
-        <<"pulses://", _/binary>> -> pulsedb_netpush:open(URL, Opts1);
-        <<"sharded://", _/binary>> -> pulsedb_sharded:open(URL, Opts1)
-      end;
-    _ -> 
-      pulsedb_worker:start_link(Name, Options)
-  end.
-
+%% XX (mtourne): spec is probably wrong with the accepted formats.
+-spec open(Path::file:filename(), Options::list()) -> {ok, pulsedb:db()} | {error, Reason::any()}.
+open(Url0, Options) ->
+    Url = iolist_to_binary(Url0),
+    case Url of
+        <<"file://", _/binary>> -> pulsedb_disk:open(Url, Options);
+        <<"pulse://", _/binary>> -> pulsedb_netpush:open(Url, Options);
+        <<"pulses://", _/binary>> -> pulsedb_netpush:open(Url, Options);
+        <<"sharded://", _/binary>> -> pulsedb_sharded:open(Url, Options)
+    end.
 
 -spec append(tick() | [tick()], db()) -> db().
 append(Ticks0, DB) ->
   Ticks = validate(Ticks0),
   if
-    is_pid(DB) -> 
-      pulsedb_worker:append(Ticks, DB);
-    DB == seconds orelse DB == minutes ->
+    %% XX (mtourne): this is pretty dirty DB should probably be a
+    %% tuple { memory, Resolution } in that case.
+    %% eventually pulsedb_worker:append() could be called
+    %% directly to avoid confusion.
+    DB == seconds orelse DB == minutes
+      orelse DB == milliseconds ->
       pulsedb_memory:append(Ticks, DB);
-    is_atom(DB) ->
-      pulsedb_worker:append(Ticks, DB);    
+    is_atom(DB) or is_pid(DB) ->
+      pulsedb_worker:append(Ticks, DB);
     is_tuple(DB) ->
+      %% XX (mtourne): what's the use case (?)
       Module = element(2,DB),
       Module:append(Ticks, DB)
   end.
@@ -72,7 +53,7 @@ validate([]) ->
   [];
 validate({Name,UTC,Value,Tags} = Tick) ->
   is_binary(Name) orelse is_atom(Name) orelse error({wrong_name,Tick}),
-  is_integer(UTC) andalso UTC >= 0 andalso UTC =< 4294967295 orelse error({wrong_utc,Tick}),
+  is_number(UTC) andalso UTC >= 0 orelse error({wrong_utc,Tick}),
   is_list(Tags) orelse error({wrong_tags,Tick}),
 
   Tags1 = [make_tag(T) || {_,_}=T <- Tags],
@@ -85,7 +66,7 @@ validate({Name,UTC,Value,Tags} = Tick) ->
 make_tag({K,V}=T) when is_binary(K), is_binary(V) -> T;
 make_tag({aggregator,V}) -> {aggregator, to_b(V)};
 make_tag({K,V}) -> {to_b(K), to_b(V)}.
-   
+
 
 
 
@@ -154,7 +135,7 @@ read(Query0, DB) when is_binary(Query0) ->
 read_once(Query0, DBOpts0) when is_list(DBOpts0) ->
   {Aggregator, Downsampler, Name0, Query1} = parse_query(Query0),
   try
-    Resolution = 
+    Resolution =
     case Downsampler of
       undefined -> seconds;
       {Interval,_} when Interval < 60          -> seconds;
@@ -163,13 +144,13 @@ read_once(Query0, DBOpts0) when is_list(DBOpts0) ->
       _ -> throw({incorrect_downsampler, Downsampler})
     end,
 
-    Name = 
+    Name =
     case Downsampler of
       undefined         -> Name0;
       {I,_} when I < 60 -> Name0;
       {_,<<"avg">>}     -> Name0;
 
-      {_,DS} when is_binary(DS) -> 
+      {_,DS} when is_binary(DS) ->
         <<DS/binary, "-", Name0/binary>>;
 
       {_,DS} when is_binary(DS) ->
@@ -184,12 +165,12 @@ read_once(Query0, DBOpts0) when is_list(DBOpts0) ->
     {ok, Ticks, DB1} = read(Name, Query, DB0),
     close(DB1),
     {ok, Ticks}
-  catch throw:E -> 
+  catch throw:E ->
     {error, E}
   end.
-    
-  
-  
+
+
+
 
 
 parse_query(Query) ->
@@ -268,6 +249,7 @@ current_second() ->
   {Mega*1000000 + Sec, Delay}.
 
 
+%% Returns current minute in secs
 -spec current_minute() -> {Number::non_neg_integer(), DelayTillNext::non_neg_integer()}.
 current_minute() ->
   {Mega, Sec, Micro} = os:timestamp(),
@@ -276,10 +258,10 @@ current_minute() ->
   Delay = (90 - (Second rem 60))*1000 + Milli,
   {Second, Delay}.
 
+%% Returns current hour in secs
 current_hour() ->
   {Mega, Sec, Micro} = os:timestamp(),
   Milli = Micro div 1000,
   Second = Mega*1000000 + Sec,
   Delay = (3900 - (Second rem 3600))*1000 + Milli,
   {Second, Delay}.
-

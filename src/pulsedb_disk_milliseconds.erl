@@ -1,4 +1,4 @@
--module(pulsedb_disk_seconds).
+-module(pulsedb_disk_milliseconds).
 -include("pulsedb.hrl").
 -behavior(pulsedb_disk).
 
@@ -9,22 +9,34 @@
 -export([last_day/1]).
 
 
-tick_number(UTC, #storage_config{ticks_per_chunk=NTicks}) ->
-  UTC rem NTicks.
+tick_number(TimestampMsec, #storage_config{ticks_per_chunk=NTicks}) ->
+%%% reminder
+%%%  UTC rem NTicks.
+%%%  mtourne: it probably works that way but wasted space
+    TimestampMsec.
 
 
-chunk_number(UTC, #storage_config{ticks_per_chunk=NTicks, chunks_per_metric=NChunks}) ->
-  lager:info("UTC: ~p, Nchunks: ~p, Ntichks: ~p", [UTC, NChunks, NTicks]),
-  (UTC rem (NChunks*NTicks)) div NTicks.
+chunk_number(TimestampMsec, #storage_config{ticks_per_chunk=NTicks, chunks_per_metric=NChunks}) ->
+    ChunkNumber = (TimestampMsec rem (NChunks*NTicks)) div NTicks,
+    lager:debug("Chunk #: ~p,TimestampMsec: ~p, Nchunks: ~p, Ntichks: ~p.",
+                [ChunkNumber, TimestampMsec, NChunks, NTicks]),
+    ChunkNumber.
 
 
-block_start_utc(UTC, #storage_config{}) ->
-  pulsedb_time:daystart(UTC).
+block_start_utc(TimestampMsec, #storage_config{}) ->
+    DayStart = pulsedb_time:daystart(TimestampMsec),
+    lager:debug("DayStart: ~p.", [DayStart]),
+    DayStart.
 
-block_end_utc(UTC, #storage_config{ticks_per_chunk=NTicks, chunks_per_metric=NChunks}) ->
-  pulsedb_time:daystart(UTC)+NChunks*NTicks - 1.
+
+block_end_utc(TimestampMsec, #storage_config{ticks_per_chunk=NTicks, chunks_per_metric=NChunks}) ->
+%%% XX (mtourne): check this.
+    DayEnd = pulsedb_time:daystart({milliseconds, TimestampMsec}) + NChunks*NTicks - 1,
+    lager:debug("DayEnd: ~p.", [DayEnd]),
+    DayEnd.
 
 
+%%% XX (mtourne): not sure what goes on here.
 required_chunks(From, To, Date, #storage_config{ticks_per_chunk = NTicks, chunks_per_metric = NChunks}) ->
   F = From div NTicks,
   T = To div NTicks,
@@ -49,20 +61,20 @@ required_chunks(From, To, Date, #storage_config{ticks_per_chunk = NTicks, chunks
      end || H <- lists:seq(F, T), H div NChunks == DateStartD].
 
 
+%%% XX (mtourne): not sure what goes on here.
 required_partitions(From, To, #storage_config{ticks_per_chunk = NTicks, chunks_per_metric = NChunks}) ->
   MetricTicksPerBlock = NTicks * NChunks,
   [block_path(X*MetricTicksPerBlock)
    || X <- lists:seq(From div MetricTicksPerBlock,To div MetricTicksPerBlock)].
 
 
-block_path(UTC) ->
-  pulsedb_time:date_path(UTC).
+block_path(TimestampMsec) ->
+    pulsedb_time:date_path({milliseconds, TimestampMsec}).
 
 
 parse_date(Date) ->
-  pulsedb_time:parse(Date).
-
-
+    lager:debug("Parse this date: ~p", [Date]),
+    pulsedb_time:parse(Date).
 
 
 last_folder(F, Path, Length) ->
